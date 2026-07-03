@@ -1,6 +1,6 @@
 #pragma once
-#include "api/APIHelp.h"
-#include "engine/MessageSystem.h"
+#include "legacy/api/APIHelp.h"
+#include "legacy/engine/MessageSystem.h"
 
 #include <vector>
 
@@ -13,13 +13,13 @@
 //     ScriptEngine*                engine = EngineScope::currentEngine()
 // );
 
-int  NewTimeout(Local<Function> func, std::vector<Local<Value>> paras, int timeout);
-int  NewTimeout(Local<String> func, int timeout);
-int  NewInterval(Local<Function> func, std::vector<Local<Value>> paras, int timeout);
-int  NewInterval(Local<String> func, int timeout);
-bool ClearTimeTask(int const& id);
-bool CheckTimeTask(int const& id);
+int  NewTimeout(Local<Function> const& func, std::vector<Local<Value>> const& paras, int timeout);
+int  NewTimeout(Local<String> const& func, int timeout);
+int  NewInterval(Local<Function> const& func, std::vector<Local<Value>> const& paras, int timeout);
+int  NewInterval(Local<String> const& func, int timeout);
+bool ClearTimeTask(unsigned int const& id);
+bool CheckTimeTask(unsigned int const& id);
 
 ///////////////////////// Func /////////////////////////
 
-void LLSERemoveTimeTaskData(ScriptEngine* engine);
+void LLSERemoveTimeTaskData(std::shared_ptr<ScriptEngine> const& engine);

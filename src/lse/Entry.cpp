@@ -1,11 +1,14 @@
-#include "Entry.h"
+#include "lse/Entry.h"
 
-#include "PluginManager.h"
-#include "PluginMigration.h"
 #include "legacy/engine/EngineManager.h"
 #include "legacy/engine/EngineOwnData.h"
+#include "legacy/main/BindAPIs.h"
 #include "legacy/main/EconomicSystem.h"
 #include "ll/api/Config.h"
+#include "ll/api/event/EventBus.h"
+#include "ll/api/event/command/ServerCommandRegisterEvent.h"
+#include "ll/api/event/server/ServerStartedEvent.h"
+#include "ll/api/event/server/ServerStoppingEvent.h"
 #include "ll/api/i18n/I18n.h"
 #include "ll/api/io/FileUtils.h"
 #include "ll/api/mod/ModManagerRegistry.h"
@@ -13,33 +16,33 @@
 #include "ll/api/mod/RegisterHelper.h"
 #include "ll/api/service/PlayerInfo.h"
 #include "ll/api/utils/ErrorUtils.h"
-#include "lse/api/MoreGlobal.h"
+#include "lse/PluginManager.h"
+#include "lse/PluginMigration.h"
 
 #include <ScriptX/ScriptX.h>
-#include <exception>
 #include <memory>
 #include <stdexcept>
 
-#ifdef LEGACY_SCRIPT_ENGINE_BACKEND_LUA
+#ifdef LSE_BACKEND_LUA
 
 constexpr auto BaseLibFileName = "BaseLib.lua";
 
 #endif
 
-#ifdef LEGACY_SCRIPT_ENGINE_BACKEND_QUICKJS
+#ifdef LSE_BACKEND_QUICKJS
 
 constexpr auto BaseLibFileName = "BaseLib.js";
 
 #endif
 
-#ifdef LEGACY_SCRIPT_ENGINE_BACKEND_PYTHON
+#ifdef LSE_BACKEND_PYTHON
 
 #include "legacy/main/PythonHelper.h"
 constexpr auto BaseLibFileName = "BaseLib.py";
 
 #endif
 
-#ifdef LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS
+#ifdef LSE_BACKEND_NODEJS
 
 #include "legacy/main/NodeJsHelper.h"
 
@@ -48,21 +51,20 @@ constexpr auto BaseLibFileName = "BaseLib.py";
 using namespace ll::i18n_literals;
 
 // Do not use legacy headers directly, otherwise there will be tons of errors.
-void                  BindAPIs(script::ScriptEngine* engine);
-void                  InitBasicEventListeners();
-void                  InitGlobalShareData();
-void                  InitLocalShareData();
-void                  InitMessageSystem();
-void                  InitSafeGuardRecord();
-void                  RegisterDebugCommand();
-bool                  InConsoleDebugMode; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
-script::ScriptEngine* DebugEngine;        // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+void                                  InitBasicEventListeners();
+void                                  InitGlobalShareData();
+void                                  InitLocalShareData();
+void                                  InitMessageSystem();
+void                                  InitSafeGuardRecord();
+void                                  RegisterDebugCommand();
+bool                                  InConsoleDebugMode; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+std::shared_ptr<script::ScriptEngine> DebugEngine;        // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 namespace lse {
 
-void loadConfig(const ll::mod::NativeMod& self, Config& config);
-void loadDebugEngine(const ll::mod::NativeMod& self);
-void registerPluginManager(const std::shared_ptr<PluginManager>& pluginManager);
+void loadConfig(ll::mod::NativeMod const& self, Config& config);
+void loadDebugEngine(ll::mod::NativeMod const& self);
+void registerPluginManager(std::shared_ptr<PluginManager> const& pluginManager);
 
 LegacyScriptEngine& LegacyScriptEngine::getInstance() {
     static LegacyScriptEngine instance;
@@ -70,18 +72,15 @@ LegacyScriptEngine& LegacyScriptEngine::getInstance() {
 }
 
 bool LegacyScriptEngine::enable() {
-    auto& logger = getSelf().getLogger();
-    try {
-        if (!api::MoreGlobal::onEnable()) {
-            logger.error("Failed to enable MoreGlobal"_tr());
-        }
-        ll::service::PlayerInfo::getInstance();
-        RegisterDebugCommand();
-    } catch (...) {
-        logger.error("Failed to enable: {0}"_tr(getSelf().getName()));
-        ll::error_utils::printCurrentException(logger);
-        return false;
-    }
+    ll::service::PlayerInfo::getInstance();
+#ifdef LL_PLAT_C
+    using namespace ll::event;
+    auto& bus = EventBus::getInstance();
+    bus.emplaceListener<ServerStartedEvent>([](ServerStartedEvent&) { getInstance().getManager().enableAllPlugins(); });
+    bus.emplaceListener<ServerStoppingEvent>([](ServerStoppingEvent&) {
+        getInstance().getManager().disableAllPlugins();
+    });
+#endif
     return true;
 }
 
@@ -90,13 +89,12 @@ void initializeLegacyStuff() {
     InitGlobalShareData();
     InitSafeGuardRecord();
     EconomySystem::init();
-#ifdef LEGACY_SCRIPT_ENGINE_BACKEND_PYTHON
+#ifdef LSE_BACKEND_PYTHON
     PythonHelper::initPythonRuntime();
 #endif
 
     InitBasicEventListeners();
     InitMessageSystem();
-    api::MoreGlobal::onLoad();
 }
 
 bool LegacyScriptEngine::load() {
@@ -121,8 +119,11 @@ bool LegacyScriptEngine::load() {
 
         loadDebugEngine(getSelf());
 
+        using namespace ll::event;
+        EventBus::getInstance().emplaceListener<ServerCommandRegisterEvent>([](ServerCommandRegisterEvent&) {
+            RegisterDebugCommand();
+        });
         return true;
-
     } catch (...) {
         logger.error("Failed to load: {0}"_tr(getSelf().getName()));
         ll::error_utils::printCurrentException(logger);
@@ -130,11 +131,14 @@ bool LegacyScriptEngine::load() {
     }
 }
 
-bool LegacyScriptEngine::disable() { return true; }
+bool LegacyScriptEngine::unload() {
+    DebugEngine.reset();
+    return true;
+}
 
-Config const& LegacyScriptEngine::getConfig() { return config; }
+Config const& LegacyScriptEngine::getConfig() const { return config; }
 
-PluginManager& LegacyScriptEngine::getManager() {
+PluginManager& LegacyScriptEngine::getManager() const {
     if (!pluginManager) {
         throw std::runtime_error("pluginManager is null");
     }
@@ -142,23 +146,23 @@ PluginManager& LegacyScriptEngine::getManager() {
     return *pluginManager;
 }
 
-void loadConfig(const ll::mod::NativeMod& self, Config& cfg) {
-    const auto& configFilePath = self.getConfigDir() / "config.json";
+void loadConfig(ll::mod::NativeMod const& self, Config& cfg) {
+    auto const& configFilePath = self.getConfigDir() / "config.json";
     if (!ll::config::loadConfig(cfg, configFilePath) && !ll::config::saveConfig(cfg, configFilePath)) {
         throw std::runtime_error("Cannot save default configurations to {0}"_tr(configFilePath));
     }
 }
 
-void loadDebugEngine(const ll::mod::NativeMod& self) {
-#ifndef LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS // NodeJs backend didn't enable debug engine now
+void loadDebugEngine(ll::mod::NativeMod const& self) {
+#ifndef LSE_BACKEND_NODEJS // NodeJs backend didn't enable debug engine now
     auto scriptEngine = EngineManager::newEngine();
 
-    script::EngineScope engineScope(scriptEngine);
+    script::EngineScope engineScope(scriptEngine.get());
 
     // Init plugin instance for debug engine to prevent something unexpected.
     ll::mod::Manifest manifest;
     manifest.name              = "DebugEngine";
-    getEngineOwnData()->plugin = std::make_shared<lse::Plugin>(manifest);
+    getEngineOwnData()->plugin = std::make_shared<lse::ScriptPlugin>(manifest);
     // Init logger
     getEngineOwnData()->logger = ll::io::LoggerRegistry::getInstance().getOrCreate("DebugEngine");
 
@@ -176,7 +180,7 @@ void loadDebugEngine(const ll::mod::NativeMod& self) {
 #endif
 }
 
-void registerPluginManager(const std::shared_ptr<PluginManager>& pm) {
+void registerPluginManager(std::shared_ptr<PluginManager> const& pm) {
     auto& pluginManagerRegistry = ll::mod::ModManagerRegistry::getInstance();
 
     if (!pluginManagerRegistry.addManager(pm)) {

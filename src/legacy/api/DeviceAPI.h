@@ -1,6 +1,5 @@
 #pragma once
-#include "api/APIHelp.h"
-#include "mc/common/ActorRuntimeID.h"
+#include "legacy/api/APIHelp.h"
 #include "mc/deps/ecs/WeakEntityRef.h"
 
 //////////////////// Classes ////////////////////
@@ -11,24 +10,21 @@ private:
     bool                   mValid;
 
 public:
-    explicit DeviceClass(Player* player) : ScriptClass(ScriptClass::ConstructFromCpp<DeviceClass>{}) {
-        setPlayer(player);
-    }
+    explicit DeviceClass(Player const* player);
 
-    void    setPlayer(Player* player);
-    Player* getPlayer();
+    Player* getPlayer() const;
 
-    static Local<Object> newDevice(Player* player);
+    static Local<Object> newDevice(Player const* player);
 
-    Local<Value> getIP();
-    Local<Value> getAvgPing();
-    Local<Value> getAvgPacketLoss();
-    Local<Value> getLastPing();
-    Local<Value> getLastPacketLoss();
-    Local<Value> getOs();
-    Local<Value> getInputMode();
+    Local<Value> getIP() const;
+    Local<Value> getAvgPing() const;
+    Local<Value> getAvgPacketLoss() const;
+    Local<Value> getLastPing() const;
+    Local<Value> getLastPacketLoss() const;
+    Local<Value> getOs() const;
+    Local<Value> getInputMode() const;
     // Local<Value> getPlayMode();
-    Local<Value> getServerAddress();
-    Local<Value> getClientId();
+    Local<Value> getServerAddress() const;
+    Local<Value> getClientId() const;
 };
 extern ClassDefine<DeviceClass> DeviceClassBuilder;

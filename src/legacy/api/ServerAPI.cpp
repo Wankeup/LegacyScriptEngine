@@ -1,42 +1,60 @@
-#include "api/ServerAPI.h"
+#include "legacy/api/ServerAPI.h"
 
-#include "api/APIHelp.h"
-#include "api/McAPI.h"
+#include "legacy/api/APIHelp.h"
+#include "legacy/api/McAPI.h"
 #include "ll/api/service/Bedrock.h"
 #include "ll/api/utils/RandomUtils.h"
+#include "mc/common/IMinecraftApp.h"
+#include "mc/common/SharedConstants.h"
 #include "mc/network/ServerNetworkHandler.h"
 #include "mc/network/packet/SetTimePacket.h"
-#include "mc/world/level/Tick.h"
 #include "mc/world/level/storage/LevelData.h"
 
-#include <cstdint>
 #include <ll/api/service/ServerInfo.h>
 
-Local<Value> McClass::setMotd(const Arguments& args) {
+Local<Value> McClass::setMotd(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     CHECK_ARG_TYPE(args[0], ValueKind::kString)
 
     try {
         return Boolean::newBoolean(ll::setServerMotd(args[0].asString().toString()));
     }
-    CATCH("Fail in SetServerMotd!")
+    CATCH_AND_THROW
 }
 
-Local<Value> McClass::crashBDS(const Arguments&) { return Boolean::newBoolean(false); }
+Local<Value> McClass::crashBDS(Arguments const&) { return Boolean::newBoolean(false); }
 
-Local<Value> McClass::setMaxNumPlayers(const Arguments& args) {
+Local<Value> McClass::setMaxNumPlayers(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     CHECK_ARG_TYPE(args[0], ValueKind::kNumber)
 
     try {
-        int back = ll::service::getServerNetworkHandler()->setMaxNumPlayers(args[0].asNumber().toInt32());
-        ll::service::getServerNetworkHandler()->updateServerAnnouncement();
-        return Boolean::newBoolean(back == 0 ? true : false);
+        int  maxPlayers        = args[0].asNumber().toInt32();
+        auto handler           = ll::service::getServerNetworkHandler();
+        int  activePlayerCount = handler->_getActiveAndInProgressPlayerCount(mce::UUID::EMPTY());
+        bool result            = true;
+
+        if (maxPlayers < activePlayerCount) {
+            maxPlayers = activePlayerCount;
+            result     = false;
+        }
+
+        int previousMaxPlayers  = handler->mMaxNumPlayers;
+        handler->mMaxNumPlayers = maxPlayers;
+
+        if (previousMaxPlayers != maxPlayers) {
+            handler->updateServerAnnouncement();
+            handler->mApp.onNetworkMaxPlayersChanged(handler->mMaxNumPlayers);
+        }
+
+        handler->updateServerAnnouncement();
+
+        return Boolean::newBoolean(result);
     }
-    CATCH("Fail in setMaxPlayers!")
+    CATCH_AND_THROW
 }
 
-Local<Value> McClass::getTime(const Arguments& args) {
+Local<Value> McClass::getTime(Arguments const& args) {
     int option = 0; // option: 0: daytime, 1: gametime, 2: day
 
     if (args.size() > 0) {
@@ -47,19 +65,16 @@ Local<Value> McClass::getTime(const Arguments& args) {
     switch (option) {
     case 0:
         return Number::newNumber(ll::service::getLevel()->getTime() % 24000);
-        break;
     case 1:
         return Number::newNumber(static_cast<int64_t>(ll::service::getLevel()->getCurrentTick().tickID));
-        break;
     case 2:
         return Number::newNumber(ll::service::getLevel()->getTime() / 24000);
-        break;
     default:
-        throw script::Exception("The range of this argument is between 0 and 2");
+        throw Exception("The range of this argument is between 0 and 2");
     }
 }
 
-Local<Value> McClass::setTime(const Arguments& args) {
+Local<Value> McClass::setTime(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     CHECK_ARG_TYPE(args[0], ValueKind::kNumber)
 
@@ -74,28 +89,30 @@ Local<Value> McClass::setTime(const Arguments& args) {
         else if (targetTime < currentTimeOfDay) newTime = currentTime + targetTime + 24000 - currentTimeOfDay;
 
         ll::service::getLevel()->setTime(newTime);
-        SetTimePacket(newTime).sendToClients();
+        SetTimePacket packet;
+        packet.mTime = newTime;
+        packet.sendToClients();
     }
-    CATCH("Fail in setTime!")
+    CATCH_AND_THROW
 
     return Boolean::newBoolean(true);
 }
 
-Local<Value> McClass::getWeather(const Arguments&) { // weather: 0: Clear, 1: Rain, 2: Thunder
-    if (ll::service::getLevel()->getLevelData().isLightning()) return Number::newNumber(2);
-    else if (ll::service::getLevel()->getLevelData().isRaining()) return Number::newNumber(1);
+Local<Value> McClass::getWeather(Arguments const&) { // weather: 0: Clear, 1: Rain, 2: Thunder
+    if (ll::service::getLevel()->getLevelData().mLightningLevel > 0.0f) return Number::newNumber(2);
+    if (ll::service::getLevel()->getLevelData().mRainLevel > 0.0f) return Number::newNumber(1);
 
     return Number::newNumber(0);
 }
 
-Local<Value> McClass::setWeather(const Arguments& args) {
+Local<Value> McClass::setWeather(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     CHECK_ARG_TYPE(args[0], ValueKind::kNumber)
 
-    int duration = 0;
-    int weather  = args[0].asNumber().toInt32(); // weather: 0: Clear, 1: Rain, 2: Thunder
+    int weather = args[0].asNumber().toInt32(); // weather: 0: Clear, 1: Rain, 2: Thunder
 
     try {
+        int duration = 0;
         if (args.size() > 1) {
             CHECK_ARG_TYPE(args[1], ValueKind::kNumber);
             duration = args[1].asNumber().toInt32();
@@ -107,7 +124,7 @@ Local<Value> McClass::setWeather(const Arguments& args) {
         else if (weather == 2) ll::service::getLevel()->updateWeather(1065353216.0, duration, 1065353216.0, duration);
         else ll::service::getLevel()->updateWeather(0.0, duration, 0.0, duration);
     }
-    CATCH("Fail in setWeather!")
+    CATCH_AND_THROW
 
     return Boolean::newBoolean(true);
 }

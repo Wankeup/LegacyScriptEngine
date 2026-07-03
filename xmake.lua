@@ -1,49 +1,57 @@
 add_rules("mode.debug", "mode.release")
 
-add_repositories("liteldev-repo https://github.com/LiteLDev/xmake-repo.git")
+add_repositories("levimc-repo " .. (get_config("levimc_repo") or "https://github.com/LiteLDev/xmake-repo.git"))
 
 if is_config("target_type", "server") then
-    add_requires("levilamina 1.0.1", {configs = {target_type = "server"}})
+    add_requires("levilamina 45a7ac1faa0ff6d613f19589ee0da43255a09084", {configs = {target_type = "server"}})
 else
-    add_requires("levilamina 1.0.1", {configs = {target_type = "client"}})
+    add_requires("levilamina 45a7ac1faa0ff6d613f19589ee0da43255a09084", {configs = {target_type = "client"}})
 end
 
 add_requires("levibuildscript")
 
+add_requires("legacyremotecall d20193f4de2f5379880e74c1723585eb7f16943c", {configs = {target_type = get_config(target_type)}})
+add_requires("legacymoney ea6de610d5edc466714c8d5c690a2f7cf203592c", {configs = {target_type = get_config(target_type)}})
+
 add_requires(
-    "legacymoney 0.9.0-rc.1",
-    "legacyparticleapi 0.9.0-rc.1",
-    "legacyremotecall 0.9.0-rc.1",
     "lightwebsocketclient 1.0.1",
     "magic_enum v0.9.7",
     "nlohmann_json v3.11.3",
     "simpleini v4.22",
     "sqlite3 3.43.0+200",
-    "toml++ v3.4.0"
+    "toml++ v3.4.0",
+    "ctre 3.8.1"
 )
 
+add_requires("openssl3")
+add_requires("cpp-httplib 0.26.0", { configs = { ssl = true, zlib = true } })
+
 if is_config("backend", "lua") then
-    add_requires("mariadb-connector-c 3.3.9")
-    add_requires("scriptx main", {configs={backend="Lua"}})
+    add_requires("mariadb-connector-c 3.4.8")
+    add_requires("scriptx 2026.4.1", { configs = { backend = "Lua" } })
 
 elseif is_config("backend", "quickjs") then
-    add_requires("mariadb-connector-c 3.3.9")
-    add_requires("scriptx main", {configs={backend="QuickJs"}})
+    add_requires("mariadb-connector-c 3.4.8")
+    add_requires("scriptx 2026.4.1", { configs = { backend = "QuickJs" } })
 
 elseif is_config("backend", "python") then
-    add_requires("mariadb-connector-c 3.3.9")
-    add_requires("scriptx main", {configs={backend="Python"}})
+    add_requires("mariadb-connector-c 3.4.8")
+    add_requires("scriptx 2026.4.1", { configs = { backend = "Python" } })
 
 elseif is_config("backend", "nodejs") then
-    add_requires("scriptx main", {configs={backend="V8"}})
-
+    add_requires("mariadb-connector-c 3.4.8")
+    add_requires("scriptx 2026.4.1", { configs = { backend = "V8" } })
 end
-
-add_requires("cpp-httplib 0.14.3", {configs = {ssl = true, zlib = true}})
 
 if not has_config("vs_runtime") then
     set_runtimes("MD")
 end
+
+option("levimc_repo")
+    set_default("https://github.com/LiteLDev/xmake-repo.git")
+    set_showmenu(true)
+    set_description("Set the levimc-repo path or url")
+option_end()
 
 option("publish")
     set_default(false)
@@ -60,18 +68,30 @@ option("backend")
     set_default("lua")
     set_values("lua", "quickjs", "python", "nodejs")
 
-target("legacy-script-engine")
+target("LegacyScriptEngine")
     add_rules("@levibuildscript/linkrule")
-    add_cxflags("/EHa", "/utf-8", "/W4", "/w44265", "/w44289", "/w44296", "/w45263", "/w44738", "/w45204","/Zm2000", {force = true})
-    add_defines(
-        "NOMINMAX",
-        "UNICODE",
-        "_AMD64_"
-    )
+    if is_plat("windows") then
+        add_defines("NOMINMAX", "UNICODE", "_AMC64_")
+        set_exceptions("none") -- To avoid conflicts with /EHa.
+        add_cxflags( "/EHa", "/utf-8", "/W4", "/w44265", "/w44289", "/w44296", "/w45263", "/w44738", "/w45204")
+        add_cxflags(
+            "/EHs",
+            "-Wno-microsoft-cast",
+            "-Wno-invalid-offsetof",
+            "-Wno-c++2b-extensions",
+            "-Wno-microsoft-include",
+            "-Wno-overloaded-virtual",
+            "-Wno-ignored-qualifiers",
+            "-Wno-missing-field-initializers",
+            "-Wno-potentially-evaluated-expression",
+            "-Wno-pragma-system-header-outside-header",
+            {tools = {"clang_cl"}}
+        )
+        set_toolchains("clang-cl")
+    end
     add_packages(
         "cpp-httplib",
         "legacymoney",
-        "legacyparticleapi",
         "legacyremotecall",
         "levilamina",
         "lightwebsocketclient",
@@ -81,19 +101,35 @@ target("legacy-script-engine")
         "simpleini",
         "sqlite3",
         "toml++",
-        "mariadb-connector-c"
+        "mariadb-connector-c",
+        "ctre"
     )
-    set_exceptions("none")
     set_kind("shared")
     set_languages("cxx20")
     set_symbols("debug")
+    set_configdir("$(builddir)/config")
+    set_configvar("LSE_WORKSPACE_FOLDER", "$(projectdir)")
+    add_configfiles("src/(lse/Version.h.in)")
     add_files(
-        "src/**.cpp"
+        "src/**.cpp",
+        "src/**.rc"
     )
     add_includedirs(
         "src",
-        "src/legacy"
+        "$(builddir)/config"
     )
+    if is_config("target_type", "server") then
+        add_defines("LL_PLAT_S")
+        add_files("src-server/**.cpp")
+        add_includedirs("src-server")
+    else
+        add_defines("LL_PLAT_C")
+        add_files("src-client/**.cpp")
+        add_includedirs("src-client")
+    end
+    if has_config("publish") then
+        add_defines("LSE_VERSION_PUBLISH")
+    end
     on_load(function (target)
         local tag = os.iorun("git describe --tags --abbrev=0 --always")
         local major, minor, patch, suffix = tag:match("v(%d+)%.(%d+)%.(%d+)(.*)")
@@ -107,8 +143,14 @@ target("legacy-script-engine")
             if prerelease then
                 prerelease = prerelease:gsub("\n", "")
             end
+            if prerelease then
+                target:set("configvar", "LSE_VERSION_PRERELEASE", prerelease)
+                versionStr = versionStr.."-"..prerelease
+            end
         end
-
+        target:set("configvar", "LSE_VERSION_MAJOR", major)
+        target:set("configvar", "LSE_VERSION_MINOR", minor)
+        target:set("configvar", "LSE_VERSION_PATCH", patch)
         if not has_config("publish") then
             local hash = os.iorun("git rev-parse --short HEAD")
             versionStr = versionStr.."+"..hash:gsub("\n", "")
@@ -122,7 +164,7 @@ target("legacy-script-engine")
 
     if is_config("backend", "lua") then
         add_defines(
-            "LEGACY_SCRIPT_ENGINE_BACKEND_LUA"
+            "LSE_BACKEND_LUA"
         )
         remove_files("src/legacy/main/NodeJsHelper.cpp")
         remove_files("src/legacy/main/PythonHelper.cpp")
@@ -139,7 +181,7 @@ target("legacy-script-engine")
 
     elseif is_config("backend", "quickjs") then
         add_defines(
-            "LEGACY_SCRIPT_ENGINE_BACKEND_QUICKJS"
+            "LSE_BACKEND_QUICKJS"
         )
         remove_files("src/legacy/main/NodeJsHelper.cpp")
         remove_files("src/legacy/main/PythonHelper.cpp")
@@ -156,7 +198,7 @@ target("legacy-script-engine")
 
     elseif is_config("backend", "python") then
         add_defines(
-            "LEGACY_SCRIPT_ENGINE_BACKEND_PYTHON"
+            "LSE_BACKEND_PYTHON"
         )
         remove_files("src/legacy/main/NodeJsHelper.cpp")
         set_basename("legacy-script-engine-python")
@@ -172,10 +214,9 @@ target("legacy-script-engine")
 
     elseif is_config("backend", "nodejs") then
         add_defines(
-            "LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS"
+            "LSE_BACKEND_NODEJS"
         )
         remove_files("src/legacy/main/PythonHelper.cpp")
-        remove_files("src/legacy/legacyapi/db/impl/mysql/*.cpp")
         set_basename("legacy-script-engine-nodejs")
         after_build(function(target)
             local langPath = path.join(os.projectdir(), "src/lang/")

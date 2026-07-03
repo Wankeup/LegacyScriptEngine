@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Config.h"
-#include "PluginManager.h"
 #include "ll/api/mod/NativeMod.h"
+#include "lse/Config.h"
+#include "lse/PluginManager.h"
 
 namespace lse {
 
@@ -10,21 +10,21 @@ class LegacyScriptEngine {
 public:
     static LegacyScriptEngine& getInstance();
 
+    static inline ll::io::Logger& getLogger() { return getInstance().getSelf().getLogger(); }
+
     LegacyScriptEngine() : mSelf(*ll::mod::NativeMod::current()) {}
 
     [[nodiscard]] ll::mod::NativeMod& getSelf() const { return mSelf; }
 
-    [[nodiscard]] Config const& getConfig();
+    [[nodiscard]] Config const& getConfig() const;
 
-    [[nodiscard]] PluginManager& getManager();
+    [[nodiscard]] PluginManager& getManager() const;
 
     bool load();
 
     bool enable();
 
-    bool disable();
-
-    // bool unload();
+    bool unload();
 
 private:
     ll::mod::NativeMod&            mSelf;

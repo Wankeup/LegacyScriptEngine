@@ -17,6 +17,7 @@
 | `ll.isBeta`              | `Boolean` | 当前版本是否为测试版                                 |
 | `ll.isDev`               | `Boolean` | 当前版本是否为开发版                                 |
 | `ll.isRelease`           | `Boolean` | 当前版本是否为发布版本                                |
+| `ll.pluginsRoot`         | `String`  | LeviLamina插件的根目录                                |
 
 ### 获取 LegacyScriptEngine 版本字符串
 
@@ -48,6 +49,13 @@
 | plugin.versionStr | 插件版本       | `String`                         |
 | plugin.filePath   | 插件路径       | `String`                         |
 | plugin.others     | 其他信息       | `Object`                         |
+
+### 获取当前插件的信息
+
+`ll.getCurrentPluginInfo()`
+
+- 返回值: 插件对象
+- 返回值类型:  `Plugin`
 
 ### 列出所有已加载的插件
 
@@ -110,7 +118,7 @@
 - 返回值：导入的函数
 - 返回值类型： `Function`
 
-`ll.import` 的返回值是一个函数。当你调用这个函数时，跨插件调用的流程将在后台自动完成。调用函数的参数将被包装并传递给远程函数，此函数的返回值即是远程函数执行完毕之后返回的返回值。
+`ll.imports` 的返回值是一个函数。当你调用这个函数时，跨插件调用的流程将在后台自动完成。调用函数的参数将被包装并传递给远程函数，此函数的返回值即是远程函数执行完毕之后返回的返回值。
 
 #### 远程调用参数类型对照，其中Type可以为其他受支持的类型
 
@@ -135,7 +143,7 @@
 #### 远程调用函数举例说明
 
 比如，有一个插件导出了某个函数，函数导出使用的命名空间为 AAA，导出函数名称为 Welcome  
-当你使用 `welcome = ll.import("AAA","welcome"); ` 完成导入之后，你就可以直接在下面执行：
+当你使用 `welcome = ll.imports("AAA","welcome"); ` 完成导入之后，你就可以直接在下面执行：
 
 `welcome("hello",2,true);`
 

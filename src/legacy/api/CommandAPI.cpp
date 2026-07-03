@@ -1,45 +1,41 @@
-#include "api/CommandAPI.h"
+#include "legacy/api/CommandAPI.h"
 
-#include "api/BaseAPI.h"
-#include "api/BlockAPI.h"
-#include "api/CommandOriginAPI.h"
-#include "api/CommandOutputAPI.h"
-#include "api/EntityAPI.h"
-#include "api/ItemAPI.h"
-#include "api/McAPI.h"
-#include "api/PlayerAPI.h"
-#include "engine/EngineOwnData.h"
-#include "engine/GlobalShareData.h"
-#include "engine/LocalShareData.h"
+#include "legacy/api/BaseAPI.h"
+#include "legacy/api/BlockAPI.h"
+#include "legacy/api/CommandOriginAPI.h"
+#include "legacy/api/CommandOutputAPI.h"
+#include "legacy/api/EntityAPI.h"
+#include "legacy/api/ItemAPI.h"
+#include "legacy/api/McAPI.h"
+#include "legacy/api/PlayerAPI.h"
+#include "legacy/engine/EngineManager.h"
+#include "legacy/engine/EngineOwnData.h"
+#include "legacy/engine/GlobalShareData.h"
+#include "legacy/engine/LocalShareData.h"
 #include "ll/api/command/CommandHandle.h"
 #include "ll/api/command/runtime/RuntimeCommand.h"
-#include "ll/api/command/runtime/RuntimeEnum.h"
 #include "ll/api/command/runtime/RuntimeOverload.h"
-#include "ll/api/event/EventBus.h"
-#include "ll/api/event/server/ServerStartedEvent.h"
+#include "ll/api/coro/CoroTask.h"
 #include "ll/api/service/Bedrock.h"
 #include "ll/api/service/GamingStatus.h"
-#include "lse/Plugin.h"
+#include "ll/api/thread/ServerThreadExecutor.h"
 #include "magic_enum.hpp"
 #include "mc/_HeaderOutputPredefine.h"
-#include "mc/deps/core/string/HashedString.h"
 #include "mc/deps/core/utility/MCRESULT.h"
+#include "mc/deps/json/FastWriter.h"
+#include "mc/deps/json/Value.h"
 #include "mc/locale/I18n.h"
 #include "mc/locale/Localization.h"
-#include "mc/server/ServerLevel.h"
 #include "mc/server/commands/CommandBlockName.h"
 #include "mc/server/commands/CommandBlockNameResult.h"
 #include "mc/server/commands/CommandContext.h"
 #include "mc/server/commands/CommandOutputType.h"
 #include "mc/server/commands/CommandPermissionLevel.h"
-#include "mc/server/commands/CommandVersion.h"
 #include "mc/server/commands/CurrentCmdVersion.h"
 #include "mc/server/commands/GenerateMessageResult.h"
 #include "mc/server/commands/MinecraftCommands.h"
 #include "mc/server/commands/ServerCommandOrigin.h"
-#include "mc/util/JsonHelpers.h"
 #include "mc/world/Minecraft.h"
-#include "mc/world/item/ItemInstance.h"
 #include "mc/world/item/ItemStack.h"
 #include "mc/world/level/dimension/Dimension.h"
 
@@ -47,8 +43,6 @@
 #include <vector>
 
 using namespace ll::command;
-using ll::event::EventBus;
-using ll::event::ServerStartedEvent;
 
 //////////////////// Class Definition ////////////////////
 
@@ -80,81 +74,99 @@ ClassDefine<CommandClass> CommandClassBuilder =
 
 //////////////////// Helper ////////////////////
 
-bool LLSERemoveCmdCallback(script::ScriptEngine* engine) {
+bool LLSERemoveCmdCallback(std::shared_ptr<script::ScriptEngine> engine) {
     std::erase_if(localShareData->commandCallbacks, [&engine](auto& data) { return data.second.fromEngine == engine; });
     return true;
 }
 
-Local<Value> convertResult(ParamStorageType const& result, CommandOrigin const& origin, CommandOutput& output) {
+Local<Value> convertResult(ParamStorageType const& result, CommandOrigin const& origin) {
     if (!result.has_value()) return {};
     if (result.hold(ParamKind::Kind::Enum)) {
         return String::newString(std::get<RuntimeEnum>(result.value()).name);
-    } else if (result.hold(ParamKind::Kind::SoftEnum)) {
+    }
+    if (result.hold(ParamKind::Kind::SoftEnum)) {
         return String::newString(std::get<RuntimeSoftEnum>(result.value()));
-    } else if (result.hold(ParamKind::Kind::BlockName)) {
+    }
+    if (result.hold(ParamKind::Kind::BlockName)) {
         return BlockClass::newBlock(
-            *std::get<CommandBlockName>(result.value()).resolveBlock(0).getBlock(),
+            *std::get<CommandBlockName>(result.value()).resolveBlock(0).mBlock,
             BlockPos::MIN(),
             -1
         );
-    } else if (result.hold(ParamKind::Kind::Item)) {
-        return ItemClass::newItem(
-            new ItemStack(
-                std::get<CommandItem>(result.value())
-                    .createInstance(1, 1, output, true)
-                    .value_or(ItemInstance::EMPTY_ITEM())
-            ),
-            false
-        ); // Not managed by BDS, pointer will be saved as unique_ptr
-    } else if (result.hold(ParamKind::Kind::Actor)) {
+    }
+    if (result.hold(ParamKind::Kind::Item)) {
+        auto item = std::make_unique<ItemStack>();
+        item->reinit(
+            ll::service::getLevel()->getItemRegistry().getNameFromLegacyID(std::get<CommandItem>(result.value()).mId),
+            1,
+            0
+        );
+        return ItemClass::newItem(std::move(item));
+    }
+    if (result.hold(ParamKind::Kind::Actor)) {
         auto arr = Array::newArray();
         for (auto i : std::get<CommandSelector<Actor>>(result.value()).results(origin)) {
             arr.add(EntityClass::newEntity(i));
         }
         return arr;
-    } else if (result.hold(ParamKind::Kind::Player)) {
+    }
+    if (result.hold(ParamKind::Kind::Player)) {
         auto arr = Array::newArray();
         for (auto i : std::get<CommandSelector<Player>>(result.value()).results(origin)) {
             arr.add(PlayerClass::newPlayer(i));
         }
         return arr;
-    } else if (result.hold(ParamKind::Kind::BlockPos)) {
+    }
+    if (result.hold(ParamKind::Kind::BlockPos)) {
         auto dim = origin.getDimension();
         return IntPos::newPos(
             std::get<CommandPosition>(result.value())
-                .getBlockPos(CommandVersion::CurrentVersion(), origin, Vec3::ZERO()),
-            dim ? dim->getDimensionId().id : -1
+                .getBlockPos(static_cast<int>(CurrentCmdVersion::Latest), origin, Vec3::ZERO()),
+            dim ? dim->getDimensionId().mValue : -1
         );
-    } else if (result.hold(ParamKind::Kind::Vec3)) {
+    }
+    if (result.hold(ParamKind::Kind::Vec3)) {
         auto dim = origin.getDimension();
         return FloatPos::newPos(
-            std::get<CommandPosition>(result.value())
-                .getPosition(CommandVersion::CurrentVersion(), origin, Vec3::ZERO()),
-            dim ? dim->getDimensionId().id : -1
+            std::get<CommandPositionFloat>(result.value())
+                .getPosition(static_cast<int>(CurrentCmdVersion::Latest), origin, Vec3::ZERO()),
+            dim ? dim->getDimensionId().mValue : -1
         );
-    } else if (result.hold(ParamKind::Kind::Message)) {
+    }
+    if (result.hold(ParamKind::Kind::Message)) {
         return String::newString(
             std::get<CommandMessage>(result.value())
-                .generateMessage(origin, CommandVersion::CurrentVersion())
+                .generateMessage(origin, static_cast<int>(CurrentCmdVersion::Latest))
                 .mMessage->c_str()
         );
-    } else if (result.hold(ParamKind::Kind::RawText)) {
-        return String::newString(std::get<CommandRawText>(result.value()).getText());
-    } else if (result.hold(ParamKind::Kind::JsonValue)) {
-        return String::newString(JsonHelpers::serialize(std::get<Json::Value>(result.value())));
-    } else if (result.hold(ParamKind::Kind::Effect)) {
-        return String::newString(std::get<MobEffect const*>(result.value())->getResourceName());
-    } else if (result.hold(ParamKind::Kind::Command)) {
+    }
+    if (result.hold(ParamKind::Kind::RawText)) {
+        return String::newString(std::get<CommandRawText>(result.value()).mText);
+    }
+    if (result.hold(ParamKind::Kind::JsonValue)) {
+        return String::newString(Json::FastWriter().write(std::get<Json::Value>(result.value())));
+    }
+    if (result.hold(ParamKind::Kind::Effect)) {
+        return String::newString(std::get<MobEffect const*>(result.value())->mResourceName);
+    }
+    if (result.hold(ParamKind::Kind::Command)) {
         return String::newString(std::get<std::unique_ptr<::Command>>(result.value())->getCommandName());
-    } else if (result.hold(ParamKind::Kind::ActorType)) {
-        return String::newString(std::get<ActorDefinitionIdentifier const*>(result.value())->getCanonicalName());
-    } else if (result.hold(ParamKind::Kind::Bool)) {
+    }
+    if (result.hold(ParamKind::Kind::ActorType)) {
+        return String::newString(
+            std::get<ActorDefinitionIdentifier const*>(result.value())->mCanonicalName->getString()
+        );
+    }
+    if (result.hold(ParamKind::Kind::Bool)) {
         return Boolean::newBoolean(std::get<bool>(result.value()));
-    } else if (result.hold(ParamKind::Kind::Int)) {
+    }
+    if (result.hold(ParamKind::Kind::Int)) {
         return Number::newNumber(std::get<int>(result.value()));
-    } else if (result.hold(ParamKind::Kind::Float)) {
+    }
+    if (result.hold(ParamKind::Kind::Float)) {
         return Number::newNumber(std::get<float>(result.value()));
-    } else if (result.hold(ParamKind::Kind::String)) {
+    }
+    if (result.hold(ParamKind::Kind::String)) {
         return String::newString(std::get<std::string>(result.value()));
     }
     return {};
@@ -166,15 +178,16 @@ std::enable_if_t<std::is_enum_v<T>, T> parseEnum(Local<Value> const& value) {
         auto tmp = magic_enum::enum_cast<T>(value.asString().toString());
         if (!tmp.has_value()) throw std::runtime_error("Unable to parse Enum value");
         return tmp.value();
-    } else if (value.isNumber()) {
-        return (T)value.asNumber().toInt32();
+    }
+    if (value.isNumber()) {
+        return static_cast<T>(value.asNumber().toInt32());
     }
     throw std::runtime_error("Unable to parse Enum value");
 }
 
 //////////////////// MC APIs ////////////////////
 
-Local<Value> McClass::runcmd(const Arguments& args) {
+Local<Value> McClass::runcmd(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     CHECK_ARG_TYPE(args[0], ValueKind::kString)
     CommandContext context = CommandContext(
@@ -185,40 +198,40 @@ Local<Value> McClass::runcmd(const Arguments& args) {
             CommandPermissionLevel::Owner,
             0
         ),
-        CommandVersion::CurrentVersion()
+        static_cast<int>(CurrentCmdVersion::Latest)
     );
     try {
-        return Boolean::newBoolean(ll::service::getMinecraft()->getCommands().executeCommand(context, false).mSuccess);
+        return Boolean::newBoolean(ll::service::getMinecraft()->mCommands->executeCommand(context, false).mSuccess);
     }
-    CATCH("Fail in RunCmd!")
+    CATCH_AND_THROW
 }
 
-Local<Value> McClass::runcmdEx(const Arguments& args) {
+Local<Value> McClass::runcmdEx(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     CHECK_ARG_TYPE(args[0], ValueKind::kString)
     try {
         std::string outputStr;
         auto        origin =
             ServerCommandOrigin("Server", ll::service::getLevel()->asServer(), CommandPermissionLevel::Owner, 0);
-        auto command = ll::service::getMinecraft()->getCommands().compileCommand(
+        auto command = ll::service::getMinecraft()->mCommands->compileCommand(
             args[0].asString().toString(),
             origin,
-            (CurrentCmdVersion)CommandVersion::CurrentVersion(),
+            static_cast<CurrentCmdVersion>(static_cast<int>(CurrentCmdVersion::Latest)),
             [&](std::string const& err) { outputStr.append(err).append("\n"); }
         );
         Local<Object> resObj = Object::newObject();
         if (command) {
             CommandOutput output(CommandOutputType::AllOutput);
             command->run(origin, output);
-            static std::shared_ptr<Localization> localization =
-                getI18n().getLocaleFor(getI18n().getCurrentLanguage()->getFullLanguageCode());
-            for (auto& msg : output.getMessages()) {
-                outputStr += getI18n().get(msg.getMessageId(), msg.getParams(), localization).append("\n");
+            static std::shared_ptr<Localization const> localization =
+                getI18n().getLocaleFor(getI18n().getCurrentLanguage()->mCode);
+            for (auto& msg : output.mMessages) {
+                outputStr += getI18n().get(msg.mMessageId, msg.mParams, localization).append("\n");
             }
             if (outputStr.ends_with('\n')) {
                 outputStr.pop_back();
             }
-            resObj.set("success", output.getSuccessCount() ? true : false);
+            resObj.set("success", output.mSuccessCount ? true : false);
             resObj.set("output", outputStr);
             return resObj;
         }
@@ -226,13 +239,14 @@ Local<Value> McClass::runcmdEx(const Arguments& args) {
             outputStr.pop_back();
         }
         resObj.set("success", false);
+        resObj.set("output", outputStr);
         return resObj;
     }
-    CATCH("Fail in RunCmdEx!")
+    CATCH_AND_THROW
 }
 
 // name, description, permission, flag, alias
-Local<Value> McClass::newCommand(const Arguments& args) {
+Local<Value> McClass::newCommand(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 2);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
     CHECK_ARG_TYPE(args[1], ValueKind::kString);
@@ -242,13 +256,13 @@ Local<Value> McClass::newCommand(const Arguments& args) {
 
         auto                   desc       = args[1].asString().toString();
         CommandPermissionLevel permission = CommandPermissionLevel::Admin;
-        CommandFlag            flag       = {(CommandFlagValue)0x80};
+        CommandFlag            flag       = {static_cast<CommandFlagValue>(0x80)};
         std::string            alias;
         if (args.size() > 2) {
-            permission = (CommandPermissionLevel)parseEnum<OldCommandPermissionLevel>(args[2]);
+            permission = static_cast<CommandPermissionLevel>(parseEnum<OldCommandPermissionLevel>(args[2]));
             if (args.size() > 3) {
                 CHECK_ARG_TYPE(args[3], ValueKind::kNumber);
-                flag = {(CommandFlagValue)args[3].asNumber().toInt32()};
+                flag = {static_cast<CommandFlagValue>(args[3].asNumber().toInt32())};
                 if (args.size() > 4) {
                     CHECK_ARG_TYPE(args[4], ValueKind::kString);
                     alias = args[4].asString().toString();
@@ -260,119 +274,113 @@ Local<Value> McClass::newCommand(const Arguments& args) {
                                  CommandPermissionLevel const& permission,
                                  CommandFlag const&            flag,
                                  std::string const&            alias) {
-            auto registry = ll::service::getCommandRegistry();
-            if (registry) {
-                auto instance = registry->findCommand(name);
-                if (instance) {
-                    lse::LegacyScriptEngine::getInstance().getSelf().getLogger().warn(
+            if (auto registry = ll::service::getCommandRegistry()) {
+                if (registry->findCommand(name)) {
+                    lse::LegacyScriptEngine::getLogger().warn(
                         "Runtime command {} already exists, changes will not beapplied except for setOverload!"_tr(name)
                     );
                 }
             }
-            auto& command = CommandRegistrar::getInstance().getOrCreateCommand(name, desc, permission, flag);
+            auto& command = CommandRegistrar::getInstance(false).getOrCreateCommand(name, desc, permission, flag);
             if (!alias.empty()) {
                 command.alias(alias);
             }
         };
         if (ll::getGamingStatus() == ll::GamingStatus::Starting) {
-            EventBus::getInstance().emplaceListener<ServerStartedEvent>(
-                [name, desc, permission, flag, alias, newCommandFunc](ServerStartedEvent&) {
-                    newCommandFunc(name, desc, permission, flag, alias);
-                }
-            );
+            ll::coro::keepThis([name, desc, permission, flag, alias, newCommandFunc]() -> ll::coro::CoroTask<> {
+                newCommandFunc(name, desc, permission, flag, alias);
+                co_return;
+            }).launch(ll::thread::ServerThreadExecutor::getDefault());
         } else {
             newCommandFunc(name, desc, permission, flag, alias);
         }
         return CommandClass::newCommand(name);
     }
-    CATCH("Fail in newCommand!")
+    CATCH_AND_THROW
 }
 
 //////////////////// Command APIs ////////////////////
 
-CommandClass::CommandClass(std::string& name)
+CommandClass::CommandClass(std::string const& name)
 : ScriptClass(ScriptClass::ConstructFromCpp<CommandClass>{}),
   commandName(name) {};
 
-Local<Object> CommandClass::newCommand(std::string& name) {
+Local<Object> CommandClass::newCommand(std::string const& name) {
     auto newp = new CommandClass(name);
     return newp->getScriptObject();
 }
 
-Local<Value> CommandClass::getName() {
+Local<Value> CommandClass::getName() const {
     try {
         return String::newString(commandName);
     }
-    CATCH("Fail in getCommandName!")
+    CATCH_AND_THROW
 }
 
-Local<Value> CommandClass::setAlias(const Arguments& args) {
+Local<Value> CommandClass::setAlias(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     CHECK_ARG_TYPE(args[0], ValueKind::kString)
     try {
         std::string alias = args[0].asString().toString();
         if (ll::getGamingStatus() == ll::GamingStatus::Starting) {
-            EventBus::getInstance().emplaceListener<ServerStartedEvent>([commandName(commandName),
-                                                                         alias](ServerStartedEvent&) {
-                ll::command::CommandRegistrar::getInstance().getOrCreateCommand(commandName).alias(alias);
-            });
+            ll::coro::keepThis([commandName(commandName), alias]() -> ll::coro::CoroTask<> {
+                CommandRegistrar::getInstance(false).getOrCreateCommand(commandName).alias(alias);
+                co_return;
+            }).launch(ll::thread::ServerThreadExecutor::getDefault());
             return Boolean::newBoolean(true);
-        } else {
-            get().alias(alias);
         }
+        get().alias(alias);
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in setAlias!")
+    CATCH_AND_THROW
 }
 
 // string, vector<string>
-Local<Value> CommandClass::setEnum(const Arguments& args) {
+Local<Value> CommandClass::setEnum(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 2)
     CHECK_ARG_TYPE(args[0], ValueKind::kString)
     CHECK_ARG_TYPE(args[1], ValueKind::kArray)
     try {
         auto enumName = args[0].asString().toString();
         auto enumArr  = args[1].asArray();
-        if (enumArr.size() == 0 || !enumArr.get(0).isString()) return Local<Value>();
+        if (enumArr.size() == 0 || !enumArr.get(0).isString()) return {};
         std::vector<std::pair<std::string, uint64>> enumValues;
         for (int i = 0; i < enumArr.size(); ++i) {
             enumValues.push_back({enumArr.get(i).asString().toString(), i});
         }
         if (ll::getGamingStatus() == ll::GamingStatus::Starting) {
-            EventBus::getInstance().emplaceListener<ServerStartedEvent>([enumName, enumValues](ServerStartedEvent&) {
-                CommandRegistrar::getInstance().tryRegisterRuntimeEnum(enumName, std::move(enumValues));
-            });
+            ll::coro::keepThis([enumName, enumValues]() -> ll::coro::CoroTask<> {
+                CommandRegistrar::getInstance(false).tryRegisterRuntimeEnum(enumName, std::move(enumValues));
+                co_return;
+            }).launch(ll::thread::ServerThreadExecutor::getDefault());
             return String::newString(enumName);
-        } else {
-            if (CommandRegistrar::getInstance().tryRegisterRuntimeEnum(enumName, std::move(enumValues))) {
-                return String::newString(enumName);
-            }
+        }
+        if (CommandRegistrar::getInstance(false).tryRegisterRuntimeEnum(enumName, std::move(enumValues))) {
+            return String::newString(enumName);
         }
         return {};
     }
-    CATCH("Fail in setEnum!")
+    CATCH_AND_THROW
 }
 
 void onExecute(CommandOrigin const& origin, CommandOutput& output, RuntimeCommand const& runtime) {
     std::string commandName = runtime.getCommandName();
-    if (localShareData->commandCallbacks.find(commandName) == localShareData->commandCallbacks.end()) {
-        lse::LegacyScriptEngine::getInstance().getSelf().getLogger().warn(
+    if (!localShareData->commandCallbacks.contains(commandName)) {
+        lse::LegacyScriptEngine::getLogger().warn(
             "Command {} failed to execute, is the plugin unloaded?"_tr(commandName)
         );
         return;
     }
-    EngineScope enter(localShareData->commandCallbacks[commandName].fromEngine);
+    EngineScope enter(localShareData->commandCallbacks[commandName].fromEngine.get());
     try {
         Local<Object> args = Object::newObject();
         auto          cmd  = CommandClass::newCommand(commandName);
-        auto          ori  = CommandOriginClass::newCommandOrigin(&origin);
-        auto          outp = CommandOutputClass::newCommandOutput(&output);
+        auto*         ori  = new CommandOriginClass(origin.clone());
+        auto*         outp = new CommandOutputClass(std::make_shared<CommandOutput>(output), ori->get());
 
         auto& registeredCommands = getEngineOwnData()->plugin->registeredCommands;
-        if (registeredCommands.find(commandName) == registeredCommands.end()) {
-            lse::LegacyScriptEngine::getInstance().getSelf().getLogger().warn(
-                "Could not find {} in registered commands."_tr(commandName)
-            );
+        if (!registeredCommands.contains(commandName)) {
+            lse::LegacyScriptEngine::getLogger().warn("Could not find {} in registered commands."_tr(commandName));
             return;
         }
         for (auto& info : registeredCommands[commandName]) {
@@ -380,49 +388,50 @@ void onExecute(CommandOrigin const& origin, CommandOutput& output, RuntimeComman
                 if (!info.name.empty()) {
                     if (info.type == ParamKind::Kind::Enum || info.type == ParamKind::Kind::SoftEnum) {
                         auto& param = runtime[info.enumName];
-                        args.set(info.name, convertResult(param, origin, output));
+                        args.set(info.name, convertResult(param, origin));
                         if (!info.identifier.empty()
                             && info.identifier != info.name) { // Keep compatibility with old plugins
-                            args.set(info.identifier, convertResult(param, origin, output));
+                            args.set(info.identifier, convertResult(param, origin));
                         }
                     } else {
                         auto& param = runtime[info.name];
-                        args.set(info.name, convertResult(param, origin, output));
+                        args.set(info.name, convertResult(param, origin));
                         if (!info.identifier.empty()
                             && info.identifier != info.name) { // Keep compatibility with old plugins
-                            args.set(info.identifier, convertResult(param, origin, output));
+                            args.set(info.identifier, convertResult(param, origin));
                         }
                     }
                 }
-            } catch (std::out_of_range&) {
-                continue;
-            }
+            } catch (std::out_of_range&) {}
         }
         localShareData->commandCallbacks[commandName].func.get().call({}, cmd, ori, outp, args);
+        std::swap(output.mMessages, outp->output->mMessages);
+        output.mSuccessCount = outp->output->mSuccessCount;
+        outp->isAsync        = true;
     }
-    CATCH_WITHOUT_RETURN("Fail in executing command \"" + commandName + "\"!")
+    CATCH_WITH_MESSAGE("Fail in executing command \"{}\"!", commandName)
 }
 
 // name, type, optional, description, identifier, option
 // name, type, description, identifier, option
 // name, type, optional, description, option
 // name, type, description, option
-Local<Value> CommandClass::newParameter(const Arguments& args) {
+Local<Value> CommandClass::newParameter(Arguments const& args) const {
     CHECK_ARGS_COUNT(args, 2);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
     try {
         auto                   name       = args[0].asString().toString();
-        ParamKind::Kind        type       = (ParamKind::Kind)parseEnum<OldParameterType>(args[1]);
-        std::string            enumName   = "";
+        ParamKind::Kind        type       = static_cast<ParamKind::Kind>(parseEnum<OldParameterType>(args[1]));
+        std::string            enumName;
         bool                   optional   = false;
-        std::string            identifier = "";
+        std::string            identifier;
         size_t                 index      = 2;
         CommandParameterOption option     = CommandParameterOption::None;
         if (args.size() > index && args[index].isBoolean()) optional = args[index++].asBoolean().value();
         if (args.size() > index && args[index].isString()) enumName = args[index++].asString().toString();
         if (args.size() > index && args[index].isString()) identifier = args[index++].asString().toString();
         if (args.size() > index && args[index].isNumber())
-            option = (CommandParameterOption)args[index++].asNumber().toInt32();
+            option = static_cast<CommandParameterOption>(args[index++].asNumber().toInt32());
         if (index != args.size()) throw std::runtime_error("Error Argument in newParameter");
 
         getEngineOwnData()->plugin->registeredCommands[commandName].push_back(
@@ -431,25 +440,25 @@ Local<Value> CommandClass::newParameter(const Arguments& args) {
 
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in newParameter!")
+    CATCH_AND_THROW
 }
 
 // name, type, description, identifier, option
 // name, type, description, option
-Local<Value> CommandClass::mandatory(const Arguments& args) {
+Local<Value> CommandClass::mandatory(Arguments const& args) const {
     CHECK_ARGS_COUNT(args, 2);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
     try {
         auto                   name       = args[0].asString().toString();
-        ParamKind::Kind        type       = (ParamKind::Kind)parseEnum<OldParameterType>(args[1]);
-        std::string            enumName   = "";
-        std::string            identifier = "";
+        ParamKind::Kind        type       = static_cast<ParamKind::Kind>(parseEnum<OldParameterType>(args[1]));
+        std::string            enumName;
+        std::string            identifier;
         size_t                 index      = 2;
         CommandParameterOption option     = CommandParameterOption::None;
         if (args.size() > index && args[index].isString()) enumName = args[index++].asString().toString();
         if (args.size() > index && args[index].isString()) identifier = args[index++].asString().toString();
         if (args.size() > index && args[index].isNumber())
-            option = (CommandParameterOption)args[index++].asNumber().toInt32();
+            option = static_cast<CommandParameterOption>(args[index++].asNumber().toInt32());
         if (index != args.size()) throw std::runtime_error("Error Argument in newParameter");
 
         getEngineOwnData()->plugin->registeredCommands[commandName].push_back(
@@ -458,25 +467,25 @@ Local<Value> CommandClass::mandatory(const Arguments& args) {
 
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in newParameter!")
+    CATCH_AND_THROW
 }
 
 // name, type, description, identifier, option
 // name, type, description, option
-Local<Value> CommandClass::optional(const Arguments& args) {
+auto CommandClass::optional(Arguments const& args) const -> Local<Value> {
     CHECK_ARGS_COUNT(args, 2);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
     try {
         auto                   name       = args[0].asString().toString();
-        ParamKind::Kind        type       = (ParamKind::Kind)parseEnum<OldParameterType>(args[1]);
-        std::string            enumName   = "";
-        std::string            identifier = "";
+        ParamKind::Kind        type       = static_cast<ParamKind::Kind>(parseEnum<OldParameterType>(args[1]));
+        std::string            enumName;
+        std::string            identifier;
         size_t                 index      = 2;
         CommandParameterOption option     = CommandParameterOption::None;
         if (args.size() > index && args[index].isString()) enumName = args[index++].asString().toString();
         if (args.size() > index && args[index].isString()) identifier = args[index++].asString().toString();
         if (args.size() > index && args[index].isNumber())
-            option = (CommandParameterOption)args[index++].asNumber().toInt32();
+            option = static_cast<CommandParameterOption>(args[index++].asNumber().toInt32());
         if (index != args.size()) throw std::runtime_error("Error Argument in newParameter");
 
         getEngineOwnData()->plugin->registeredCommands[commandName].push_back(
@@ -485,14 +494,15 @@ Local<Value> CommandClass::optional(const Arguments& args) {
 
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in newParameter!")
+    CATCH_AND_THROW
 }
 
 // vector<identifier>
 // vector<index>
-Local<Value> CommandClass::addOverload(const Arguments& args) {
+Local<Value> CommandClass::addOverload(Arguments const& args) {
     try {
-        auto overloadFunc = [e(EngineScope::currentEngine()
+        auto overloadFunc = [e(
+                                EngineManager::checkAndGet(EngineScope::currentEngine(), true)
                             )](RuntimeOverload& cmd, std::string const& commandName, std::string const& paramName) {
             auto& paramList = getEngineData(e)->plugin->registeredCommands[commandName];
             for (auto& info : paramList) {
@@ -514,31 +524,36 @@ Local<Value> CommandClass::addOverload(const Arguments& args) {
             }
         };
         auto delayRegFunc = [this, &overloadFunc](std::vector<std::string>& paramNames) {
-            EventBus::getInstance().emplaceListener<ServerStartedEvent>([paramNames,
-                                                                         commandName(commandName),
-                                                                         overloadFunc,
-                                                                         e(EngineScope::currentEngine()
-                                                                         )](ServerStartedEvent&) {
-                auto cmd = ll::command::CommandRegistrar::getInstance()
-                               .getOrCreateCommand(commandName)
-                               .runtimeOverload(getEngineData(e)->plugin);
-                for (auto& paramName : paramNames) {
-                    overloadFunc(cmd, commandName, paramName);
+            ll::coro::keepThis(
+                [paramNames,
+                 commandName(commandName),
+                 overloadFunc,
+                 e(EngineManager::checkAndGet(EngineScope::currentEngine(), true))]() -> ll::coro::CoroTask<> {
+                    auto cmd = CommandRegistrar::getInstance(false)
+                                   .getOrCreateCommand(commandName)
+                                   .runtimeOverload(getEngineData(e)->plugin);
+                    for (auto& paramName : paramNames) {
+                        overloadFunc(cmd, commandName, paramName);
+                    }
+                    cmd.execute(onExecute);
+                    co_return;
                 }
-                cmd.execute(onExecute);
-            });
+            ).launch(ll::thread::ServerThreadExecutor::getDefault());
         };
         if (args.size() == 0) {
             if (ll::getGamingStatus() == ll::GamingStatus::Starting) {
-                EventBus::getInstance().emplaceListener<ServerStartedEvent>(
-                    [commandName(commandName), e(EngineScope::currentEngine())](ServerStartedEvent&) {
+                ll::coro::keepThis(
+                    [commandName(commandName),
+                     e(EngineManager::checkAndGet(EngineScope::currentEngine(), true))]() -> ll::coro::CoroTask<> {
                         getEngineData(e)->plugin->registeredCommands[commandName].push_back({});
-                        auto cmd = ll::command::CommandRegistrar::getInstance()
+                        auto cmd = CommandRegistrar::getInstance(false)
                                        .getOrCreateCommand(commandName)
                                        .runtimeOverload(getEngineData(e)->plugin);
                         cmd.execute(onExecute);
+                        co_return;
                     }
-                );
+                ).launch(ll::thread::ServerThreadExecutor::getDefault());
+
             } else {
                 getEngineOwnData()->plugin->registeredCommands[commandName].push_back({});
                 auto cmd = get().runtimeOverload(getEngineOwnData()->plugin);
@@ -564,7 +579,8 @@ Local<Value> CommandClass::addOverload(const Arguments& args) {
                 cmd.execute(onExecute);
             }
             return Boolean::newBoolean(true);
-        } else if (args[0].isString()) {
+        }
+        if (args[0].isString()) {
             if (ll::getGamingStatus() == ll::GamingStatus::Starting) {
                 std::vector<std::string> paramNames;
                 for (int i = 0; i < args.size(); ++i) {
@@ -582,19 +598,22 @@ Local<Value> CommandClass::addOverload(const Arguments& args) {
                 cmd.execute(onExecute);
             }
             return Boolean::newBoolean(true);
-        } else if (args[0].isArray()) {
+        }
+        if (args[0].isArray()) {
             auto arr = args[0].asArray();
             if (arr.size() == 0) {
                 if (ll::getGamingStatus() == ll::GamingStatus::Starting) {
-                    EventBus::getInstance().emplaceListener<ServerStartedEvent>(
-                        [commandName(commandName), e(EngineScope::currentEngine())](ServerStartedEvent&) {
+                    ll::coro::keepThis(
+                        [commandName(commandName),
+                         e(EngineManager::checkAndGet(EngineScope::currentEngine(), true))]() -> ll::coro::CoroTask<> {
                             getEngineData(e)->plugin->registeredCommands[commandName].push_back({});
-                            auto cmd = ll::command::CommandRegistrar::getInstance()
+                            auto cmd = CommandRegistrar::getInstance(false)
                                            .getOrCreateCommand(commandName)
                                            .runtimeOverload(getEngineData(e)->plugin);
                             cmd.execute(onExecute);
+                            co_return;
                         }
-                    );
+                    ).launch(ll::thread::ServerThreadExecutor::getDefault());
                 } else {
                     getEngineOwnData()->plugin->registeredCommands[commandName].push_back({});
                     auto cmd = get().runtimeOverload(getEngineOwnData()->plugin);
@@ -620,7 +639,8 @@ Local<Value> CommandClass::addOverload(const Arguments& args) {
                     cmd.execute(onExecute);
                 }
                 return Boolean::newBoolean(true);
-            } else if (arr.get(0).isString()) {
+            }
+            if (arr.get(0).isString()) {
                 if (ll::getGamingStatus() == ll::GamingStatus::Starting) {
                     std::vector<std::string> paramNames;
                     for (int i = 0; i < arr.size(); ++i) {
@@ -640,46 +660,48 @@ Local<Value> CommandClass::addOverload(const Arguments& args) {
                 return Boolean::newBoolean(true);
             }
         }
-        LOG_WRONG_ARG_TYPE(__FUNCTION__);
-        return Local<Value>();
+        throw WrongArgTypeException(__FUNCTION__);
     }
-    CATCH("Fail in addOverload!")
+    CATCH_AND_THROW
 }
 
 // function (command, origin, output, results){}
-Local<Value> CommandClass::setCallback(const Arguments& args) {
+Local<Value> CommandClass::setCallback(Arguments const& args) const {
     CHECK_ARGS_COUNT(args, 1);
     CHECK_ARG_TYPE(args[0], ValueKind::kFunction);
     try {
-        auto func = args[0].asFunction();
-        localShareData
-            ->commandCallbacks[commandName] = {EngineScope::currentEngine(), 0, script::Global<Function>(func)};
+        auto func                                     = args[0].asFunction();
+        localShareData->commandCallbacks[commandName] = {
+            EngineManager::checkAndGet(EngineScope::currentEngine()),
+            CommandPermissionLevel::Any,
+            script::Global<Function>(func)
+        };
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in setCallback!")
+    CATCH_AND_THROW
 }
 
 // setup(Function<Command, Origin, Output, Map<String, Any>>)
-Local<Value> CommandClass::setup(const Arguments& args) {
+Local<Value> CommandClass::setup(Arguments const& args) const {
     try {
         if (args.size() > 0) {
-            setCallback(args);
+            return setCallback(args);
         }
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in setup!")
+    CATCH_AND_THROW
 }
 
 Local<Value> CommandClass::isRegistered() { return Boolean::newBoolean(true); }
 
-Local<Value> CommandClass::toString(const Arguments&) {
+Local<Value> CommandClass::toString(Arguments const&) {
     try {
         return String::newString(fmt::format("<Command({})>", commandName));
     }
-    CATCH("Fail in toString!");
+    CATCH_AND_THROW
 }
 
-Local<Value> CommandClass::setSoftEnum(const Arguments& args) {
+Local<Value> CommandClass::setSoftEnum(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 2);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
     CHECK_ARG_TYPE(args[1], ValueKind::kArray);
@@ -687,18 +709,19 @@ Local<Value> CommandClass::setSoftEnum(const Arguments& args) {
         auto name  = args[0].asString().toString();
         auto enums = parseStringList(args[1].asArray());
         if (ll::getGamingStatus() == ll::GamingStatus::Starting) {
-            EventBus::getInstance().emplaceListener<ServerStartedEvent>([name, enums](ServerStartedEvent&) {
-                CommandRegistrar::getInstance().tryRegisterSoftEnum(name, std::move(enums));
-            });
+            ll::coro::keepThis([name, enums]() -> ll::coro::CoroTask<> {
+                CommandRegistrar::getInstance(false).tryRegisterSoftEnum(name, std::move(enums));
+                co_return;
+            }).launch(ll::thread::ServerThreadExecutor::getDefault());
         } else {
-            CommandRegistrar::getInstance().tryRegisterSoftEnum(name, std::move(enums));
+            CommandRegistrar::getInstance(false).tryRegisterSoftEnum(name, std::move(enums));
         }
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in setSoftEnum!");
+    CATCH_AND_THROW
 }
 
-Local<Value> CommandClass::addSoftEnumValues(const Arguments& args) {
+Local<Value> CommandClass::addSoftEnumValues(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 2);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
     CHECK_ARG_TYPE(args[1], ValueKind::kArray);
@@ -706,18 +729,19 @@ Local<Value> CommandClass::addSoftEnumValues(const Arguments& args) {
         auto name  = args[0].asString().toString();
         auto enums = parseStringList(args[1].asArray());
         if (ll::getGamingStatus() == ll::GamingStatus::Starting) {
-            EventBus::getInstance().emplaceListener<ServerStartedEvent>([name, enums](ServerStartedEvent&) {
-                CommandRegistrar::getInstance().addSoftEnumValues(name, std::move(enums));
-            });
+            ll::coro::keepThis([name, enums]() -> ll::coro::CoroTask<> {
+                CommandRegistrar::getInstance(false).addSoftEnumValues(name, std::move(enums));
+                co_return;
+            }).launch(ll::thread::ServerThreadExecutor::getDefault());
         } else {
-            CommandRegistrar::getInstance().addSoftEnumValues(name, std::move(enums));
+            CommandRegistrar::getInstance(false).addSoftEnumValues(name, std::move(enums));
         }
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in addSoftEnumValues!");
+    CATCH_AND_THROW
 }
 
-Local<Value> CommandClass::removeSoftEnumValues(const Arguments& args) {
+Local<Value> CommandClass::removeSoftEnumValues(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 2);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
     CHECK_ARG_TYPE(args[1], ValueKind::kArray);
@@ -725,36 +749,36 @@ Local<Value> CommandClass::removeSoftEnumValues(const Arguments& args) {
         auto name  = args[0].asString().toString();
         auto enums = parseStringList(args[1].asArray());
         if (ll::getGamingStatus() == ll::GamingStatus::Starting) {
-            EventBus::getInstance().emplaceListener<ServerStartedEvent>([name, enums](ServerStartedEvent&) {
-                CommandRegistrar::getInstance().removeSoftEnumValues(name, std::move(enums));
-            });
+            ll::coro::keepThis([name, enums]() -> ll::coro::CoroTask<> {
+                CommandRegistrar::getInstance(false).removeSoftEnumValues(name, enums);
+                co_return;
+            }).launch(ll::thread::ServerThreadExecutor::getDefault());
         } else {
-            CommandRegistrar::getInstance().removeSoftEnumValues(name, std::move(enums));
+            CommandRegistrar::getInstance(false).removeSoftEnumValues(name, std::move(enums));
         }
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in removeSoftEnumValues!");
+    CATCH_AND_THROW
 }
 
-Local<Value> CommandClass::getSoftEnumValues(const Arguments& args) {
+Local<Value> CommandClass::getSoftEnumValues(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
     try {
-        auto name     = args[0].asString().toString();
-        auto registry = ll::service::getCommandRegistry();
-        if (registry) {
+        auto name = args[0].asString().toString();
+        if (auto registry = ll::service::getCommandRegistry()) {
             auto& lookup    = registry->mSoftEnumLookup;
             auto& softEnums = registry->mSoftEnums;
-            if (lookup.find(name) != lookup.end()) {
+            if (lookup.contains(name)) {
                 return getStringArray(softEnums[lookup[name]].mValues);
             }
         }
         return {};
     }
-    CATCH("Fail in getSoftEnumValues");
+    CATCH_AND_THROW
 }
 
-Local<Value> CommandClass::getSoftEnumNames(const Arguments&) {
+Local<Value> CommandClass::getSoftEnumNames(Arguments const&) {
     try {
         auto registry = ll::service::getCommandRegistry();
         if (!registry) return {};
@@ -765,5 +789,5 @@ Local<Value> CommandClass::getSoftEnumNames(const Arguments&) {
         }
         return getStringArray(names);
     }
-    CATCH("Fail in getSoftEnumNames");
+    CATCH_AND_THROW
 }

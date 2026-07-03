@@ -62,9 +62,12 @@ nav:
 
 theme:
   name: material
+  custom_dir: docs/overrides
   features:
     - navigation.tabs
     - navigation.tabs.sticky
+    - content.code.copy
+    - content.code.select
   favicon: img/logo.png
   logo: img/logo.png
   palette:
@@ -88,7 +91,10 @@ markdown_extensions:
   - def_list
   - footnotes
   - md_in_html
-  - toc
+  - toc:
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
   - tables
   - pymdownx.arithmatex
   - pymdownx.betterem

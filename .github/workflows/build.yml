@@ -3,12 +3,18 @@ on:
     paths:
       - .github/workflows/build.yml
       - src/**
+      - src-server/**
+      - src-client/**
       - xmake.lua
   push:
     paths:
       - .github/workflows/build.yml
       - src/**
+      - src-server/**
+      - src-client/**
       - xmake.lua
+    branches:
+      - '**'
   workflow_dispatch:
 
 jobs:
@@ -21,12 +27,15 @@ jobs:
           - lua
           - python
           - quickjs
+        target_type:
+          - client
+          - server
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: xmake-io/github-action-setup-xmake@v1
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/AppData/Local/.xmake
@@ -38,13 +47,13 @@ jobs:
           xmake repo -u
 
       - run: |
-          xmake f -a x64 -m release -p windows -v -y --backend=${{ matrix.backend }}
+          xmake f -a x64 -m release -p windows -v -y --target_type=${{ matrix.target_type }} --backend=${{ matrix.backend }}
 
       - run: |
           xmake -y
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: legacy-script-engine-${{ matrix.backend }}-windows-x64-${{ github.sha }}
+          name: ${{ github.event.repository.name }}-${{ github.sha }}-${{ matrix.target_type }}-${{ matrix.backend }}-windows-x64
           path: |
             bin/

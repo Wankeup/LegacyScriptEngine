@@ -1,14 +1,14 @@
-#include "api/ItemAPI.h"
+#include "legacy/api/ItemAPI.h"
 
-#include "api/APIHelp.h"
-#include "api/BaseAPI.h"
-#include "api/EntityAPI.h"
-#include "api/McAPI.h"
-#include "api/NbtAPI.h"
+#include "legacy/api/APIHelp.h"
+#include "legacy/api/BaseAPI.h"
+#include "legacy/api/EntityAPI.h"
+#include "legacy/api/McAPI.h"
+#include "legacy/api/NbtAPI.h"
 #include "ll/api/service/Bedrock.h"
-#include "mc/nbt/CompoundTag.h"
+#include "lse/api/helper/ItemHelper.h"
+#include "mc/common/SharedPtr.h"
 #include "mc/safety/RedactableString.h"
-#include "mc/world/actor/Actor.h"
 #include "mc/world/actor/item/ItemActor.h"
 #include "mc/world/item/Item.h"
 #include "mc/world/item/ItemStack.h"
@@ -20,6 +20,8 @@
 #include <variant>
 #include <vector>
 
+using lse::api::ItemHelper;
+
 //////////////////// Class Definition ////////////////////
 
 ClassDefine<ItemClass> ItemClassBuilder = defineClass<ItemClass>("LLSE_Item")
@@ -28,6 +30,7 @@ ClassDefine<ItemClass> ItemClassBuilder = defineClass<ItemClass>("LLSE_Item")
                                               .instanceProperty("type", &ItemClass::getType)
                                               .instanceProperty("id", &ItemClass::getId)
                                               .instanceProperty("count", &ItemClass::getCount)
+                                              .instanceProperty("maxCount", &ItemClass::getMaxCount)
                                               .instanceProperty("aux", &ItemClass::getAux)
                                               .instanceProperty("damage", &ItemClass::getDamage)
                                               .instanceProperty("lore", &ItemClass::getLore)
@@ -71,109 +74,121 @@ ClassDefine<ItemClass> ItemClassBuilder = defineClass<ItemClass>("LLSE_Item")
 
 //////////////////// Classes ////////////////////
 
-ItemClass::ItemClass(ItemStack* itemStack, bool isManagedByBDS)
+ItemClass::ItemClass(std::variant<std::monostate, std::unique_ptr<ItemStack>, ItemStack*> itemStack)
 : ScriptClass(ScriptClass::ConstructFromCpp<ItemClass>{}) {
-    if (isManagedByBDS) {
-        item = itemStack;
-    } else {
-        item = std::unique_ptr<ItemStack>(itemStack);
-    }
+    item = std::move(itemStack);
     preloadData();
 }
 
 // 生成函数
-Local<Object> ItemClass::newItem(ItemStack* itemStack, bool isManagedByBDS) {
-    auto newp = new ItemClass(itemStack, isManagedByBDS);
+Local<Object> ItemClass::newItem(ItemStack* itemStack) {
+    auto newp = new ItemClass(itemStack);
     return newp->getScriptObject();
 }
 
-ItemStack* ItemClass::extract(Local<Value> v) {
+Local<Object> ItemClass::newItem(std::unique_ptr<ItemStack> itemStack) {
+    auto newp = new ItemClass(std::move(itemStack));
+    return newp->getScriptObject();
+}
+
+ItemStack* ItemClass::extract(Local<Value> const& v) {
     if (EngineScope::currentEngine()->isInstanceOf<ItemClass>(v))
         return EngineScope::currentEngine()->getNativeInstance<ItemClass>(v)->get();
-    else return nullptr;
+    return nullptr;
 }
 
 // 成员函数
 void ItemClass::preloadData() {
-    ;
     name = get()->getCustomName();
     if (name.empty()) name = get()->getName();
 
-    type  = get()->getTypeName();
-    id    = get()->getId();
-    count = get()->mCount;
-    aux   = get()->getAuxValue();
+    type     = get()->getTypeName();
+    id       = get()->getId();
+    count    = get()->mCount;
+    maxCount = get()->getMaxStackSize();
+    aux      = get()->getAuxValue();
 }
 
-Local<Value> ItemClass::getName() {
+Local<Value> ItemClass::getName() const {
     try {
         // 已预加载
         return String::newString(name);
     }
-    CATCH("Fail in GetItemName!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::getType() {
+Local<Value> ItemClass::getType() const {
     try {
         // 已预加载
         return String::newString(type);
     }
-    CATCH("Fail in GetType!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::getId() {
+Local<Value> ItemClass::getId() const {
     try {
         // 已预加载
         return Number::newNumber(id);
     }
-    CATCH("Fail in GetType!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::getCount() {
+Local<Value> ItemClass::getCount() const {
     try {
         // 已预加载
         return Number::newNumber(count);
     }
-    CATCH("Fail in GetCount!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::getAux() {
+Local<Value> ItemClass::getMaxCount() const {
+    try {
+        // 已预加载
+        return Number::newNumber(maxCount);
+    }
+    CATCH_AND_THROW
+}
+
+Local<Value> ItemClass::getAux() const {
     try {
         // 已预加载
         return Number::newNumber(aux);
     }
-    CATCH("Fail in GetAux!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::getDamage() {
+Local<Value> ItemClass::getDamage() const {
     try {
         return Number::newNumber(get()->getDamageValue());
     }
-    CATCH("Fail in GetDamage!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::getAttackDamage() {
+Local<Value> ItemClass::getAttackDamage() const {
     try {
-        return Number::newNumber(get()->getAttackDamage());
+        if (auto mItem = get()->mItem) {
+            return Number::newNumber(mItem->getAttackDamage());
+        }
+        return Number::newNumber(0);
     }
-    CATCH("Fail in GetAttackDamage!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::getMaxDamage() {
+Local<Value> ItemClass::getMaxDamage() const {
     try {
         return Number::newNumber(get()->getMaxDamage());
     }
-    CATCH("Fail in GetMaxDamage!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::getMaxStackSize() {
+Local<Value> ItemClass::getMaxStackSize() const {
     try {
         return Number::newNumber(get()->getMaxStackSize());
     }
-    CATCH("Fail in GetMaxStackSize!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::getLore() {
+Local<Value> ItemClass::getLore() const {
     try {
         std::vector<std::string> loreArray = get()->getCustomLore();
 
@@ -185,176 +200,190 @@ Local<Value> ItemClass::getLore() {
 
         return loreValueList;
     }
-    CATCH("Fail in GetLore!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isArmorItem() {
+Local<Value> ItemClass::isArmorItem() const {
     try {
         return Boolean::newBoolean(get()->isArmorItem());
     }
-    CATCH("Fail in isArmorItem!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isBlock() {
+Local<Value> ItemClass::isBlock() const {
     try {
-        return Boolean::newBoolean(get()->isBlock());
+        return Boolean::newBoolean(get()->getBlockType().get());
     }
-    CATCH("Fail in isBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isDamageableItem() {
+Local<Value> ItemClass::isDamageableItem() const {
     try {
         return Boolean::newBoolean(get()->isDamageableItem());
     }
-    CATCH("Fail in isDamageableItem!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isDamaged() {
+Local<Value> ItemClass::isDamaged() const {
     try {
-        return Boolean::newBoolean(get()->isDamaged());
+        return Boolean::newBoolean(get()->getDamageValue() > 0);
     }
-    CATCH("Fail in isDamaged!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isEnchanted() {
+Local<Value> ItemClass::isEnchanted() const {
     try {
         return Boolean::newBoolean(get()->isEnchanted());
     }
-    CATCH("Fail in isEnchanted!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isEnchantingBook() {
+Local<Value> ItemClass::isEnchantingBook() const {
     try {
         return Boolean::newBoolean(get()->isEnchantingBook());
     }
-    CATCH("Fail in isEnchantingBook!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isFireResistant() {
+Local<Value> ItemClass::isFireResistant() const {
     try {
-        return Boolean::newBoolean(get()->isFireResistant());
+        if (auto mItem = get()->mItem) {
+            return Boolean::newBoolean(mItem->mFireResistant);
+        }
+        return Boolean::newBoolean(false);
     }
-    CATCH("Fail in isFireResistant!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isFullStack() {
+Local<Value> ItemClass::isFullStack() const {
     try {
-        return Boolean::newBoolean(get()->isFullStack());
+        return Boolean::newBoolean(get()->mCount >= get()->getMaxStackSize());
     }
-    CATCH("Fail in isFullStack!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isGlint() {
+Local<Value> ItemClass::isGlint() const {
     try {
-        return Boolean::newBoolean(get()->isGlint());
+        return Boolean::newBoolean(get()->mItem->mIsGlint);
     }
-    CATCH("Fail in isGlint!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isHorseArmorItem() {
+Local<Value> ItemClass::isHorseArmorItem() const {
     try {
         return Boolean::newBoolean(get()->isHorseArmorItem());
     }
-    CATCH("Fail in isHorseArmorItem!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isLiquidClipItem() {
+Local<Value> ItemClass::isLiquidClipItem() const {
     try {
-        return Boolean::newBoolean(get()->isLiquidClipItem());
+        if (auto mItem = get()->mItem) {
+            return Boolean::newBoolean(mItem->isLiquidClipItem());
+        }
+        return Boolean::newBoolean(false);
     }
-    CATCH("Fail in isLiquidClipItem!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isMusicDiscItem() {
+Local<Value> ItemClass::isMusicDiscItem() const {
     try {
         return Boolean::newBoolean(get()->getItem()->isMusicDisk());
     }
-    CATCH("Fail in isMusicDiscItem!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isOffhandItem() {
+Local<Value> ItemClass::isOffhandItem() const {
     try {
-        return Boolean::newBoolean(get()->isOffhandItem());
+        if (auto mItem = get()->mItem) {
+            return Boolean::newBoolean(mItem->mAllowOffhand);
+        }
+        return Boolean::newBoolean(false);
     }
-    CATCH("Fail in isOffhandItem!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isPotionItem() {
+Local<Value> ItemClass::isPotionItem() const {
     try {
         return Boolean::newBoolean(get()->isPotionItem());
     }
-    CATCH("Fail in isPotionItem!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isStackable() {
+Local<Value> ItemClass::isStackable() const {
     try {
-        return Boolean::newBoolean(get()->isStackable());
+        if (get()->getMaxStackSize() > 1u && get()->getDamageValue() <= 0) {
+            return Boolean::newBoolean(true);
+        }
+        return Boolean::newBoolean(false);
     }
-    CATCH("Fail in isStackable!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isWearableItem() {
+Local<Value> ItemClass::isWearableItem() const {
     try {
-        return Boolean::newBoolean(get()->isHumanoidWearableItem());
+        if (get()->mItem) {
+            return Boolean::newBoolean(get()->isHumanoidWearableBlockItem());
+        }
+        return Boolean::newBoolean(false);
     }
-    CATCH("Fail in isWearableItem!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::set(const Arguments& args) {
+Local<Value> ItemClass::set(Arguments const& args) const {
     CHECK_ARGS_COUNT(args, 1);
 
     try {
         auto itemNew = ItemClass::extract(args[0]);
-        if (!itemNew) return Local<Value>(); // Null
+        if (!itemNew) return {}; // Null
 
         auto tag = itemNew->save(*SaveContextFactory::createCloneSaveContext());
         if (std::holds_alternative<std::unique_ptr<ItemStack>>(item)) {
-            std::get<std::unique_ptr<ItemStack>>(item)->load(*tag);
+            ItemHelper::load(*std::get<std::unique_ptr<ItemStack>>(item), *tag);
         } else {
-            std::get<ItemStack*>(item)->load(*tag);
+            ItemHelper::load(*std::get<ItemStack*>(item), *tag);
         }
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in set!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::clone(const Arguments&) {
+Local<Value> ItemClass::clone(Arguments const&) const {
     try {
         auto itemStack = get();
-        if (!itemStack) return Local<Value>(); // Null
-        auto itemNew = new ItemStack(*itemStack);
-        return ItemClass::newItem(itemNew, false);
+        if (!itemStack) return {};
+        return ItemClass::newItem(std::make_unique<ItemStack>(*itemStack));
     }
-    CATCH("Fail in cloneItem!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::isNull(const Arguments&) {
+Local<Value> ItemClass::isNull(Arguments const&) const {
     try {
         return Boolean::newBoolean(get()->isNull());
     }
-    CATCH("Fail in isNull!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::setNull(const Arguments&) {
+Local<Value> ItemClass::setNull(Arguments const&) const {
     try {
         get()->setNull({});
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in setNull!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::setAux(const Arguments& args) {
+Local<Value> ItemClass::setAux(Arguments const& args) const {
     CHECK_ARGS_COUNT(args, 1);
     CHECK_ARG_TYPE(args[0], ValueKind::kNumber);
 
     try {
-        get()->setAuxValue(args[0].asNumber().toInt32());
+        get()->mAuxValue = args[0].asNumber().toInt32();
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in setAux!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::setLore(const Arguments& args) {
+Local<Value> ItemClass::setLore(Arguments const& args) const {
     CHECK_ARGS_COUNT(args, 1);
     CHECK_ARG_TYPE(args[0], ValueKind::kArray);
 
@@ -370,21 +399,25 @@ Local<Value> ItemClass::setLore(const Arguments& args) {
         get()->setCustomLore(lores);
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in SetLore!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::setDisplayName(const Arguments& args) {
+Local<Value> ItemClass::setDisplayName(Arguments const& args) const {
     CHECK_ARGS_COUNT(args, 1);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
 
     try {
-        get()->setCustomName(Bedrock::Safety::RedactableString(args[0].asString().toString()));
+        Bedrock::Safety::RedactableString redactableString(
+            args[0].asString().toString(),
+            args[0].asString().toString()
+        );
+        get()->setCustomName(redactableString);
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in setDisplayName!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::setDamage(const Arguments& args) {
+Local<Value> ItemClass::setDamage(Arguments const& args) const {
     CHECK_ARGS_COUNT(args, 1);
     CHECK_ARG_TYPE(args[0], ValueKind::kNumber);
 
@@ -392,36 +425,34 @@ Local<Value> ItemClass::setDamage(const Arguments& args) {
         if (get()->isDamageableItem() && args[0].asNumber().toInt32() <= 32767) {
             get()->setDamageValue(args[0].asNumber().toInt32());
             return Boolean::newBoolean(true);
-        } else {
-            return Boolean::newBoolean(false);
         }
+        return Boolean::newBoolean(false);
     }
-    CATCH("Fail in setDamage!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::getNbt(const Arguments&) {
+Local<Value> ItemClass::getNbt(Arguments const&) const {
     try {
         return NbtCompoundClass::pack(get()->save(*SaveContextFactory::createCloneSaveContext()));
     }
-    CATCH("Fail in getNbt!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::setNbt(const Arguments& args) {
+Local<Value> ItemClass::setNbt(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1);
 
     try {
         auto nbt = NbtCompoundClass::extract(args[0]);
-        if (!nbt) return Local<Value>(); // Null
-        auto itemStack = get();
-        itemStack->load(*nbt);
+        if (!nbt) return {}; // Null
+        ItemHelper::load(*get(), *nbt);
         // update Pre Data
         preloadData();
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in setNbt!");
+    CATCH_AND_THROW
 }
 
-Local<Value> McClass::newItem(const Arguments& args) {
+Local<Value> McClass::newItem(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1);
 
     try {
@@ -430,35 +461,23 @@ Local<Value> McClass::newItem(const Arguments& args) {
             if (args.size() >= 2 && args[1].isNumber()) {
                 std::string type = args[0].asString().toString();
                 int         cnt  = args[1].asNumber().toInt32();
-
-                ItemStack* item = new ItemStack{type, cnt, 0, nullptr};
-                if (!item) return Local<Value>();            // Null
-                else return ItemClass::newItem(item, false); // Not managed by BDS, pointer will be saved as unique_ptr
-            } else {
-                LOG_TOO_FEW_ARGS(__FUNCTION__);
-                return Local<Value>();
+                auto        item = std::make_unique<ItemStack>();
+                item->reinit(type, cnt, 0);
+                return ItemClass::newItem(std::move(item));
             }
-        } else {
-            auto nbt = NbtCompoundClass::extract(args[0]);
-            if (nbt) {
-                auto newItem = new ItemStack{ItemStack::EMPTY_ITEM()};
-                newItem->load(*nbt);
-                if (!newItem) return Local<Value>(); // Null
-                else
-                    return ItemClass::newItem(
-                        newItem,
-                        false
-                    ); // Not managed by BDS, pointer will be saved as unique_ptr
-            } else {
-                LOG_WRONG_ARG_TYPE(__FUNCTION__);
-                return Local<Value>();
-            }
+            throw TooFewArgsException(__FUNCTION__);
         }
+        if (auto nbt = NbtCompoundClass::extract(args[0])) {
+            auto newItem = std::make_unique<ItemStack>(ItemStack::EMPTY_ITEM());
+            ItemHelper::load(*newItem, *nbt);
+            return ItemClass::newItem(std::move(newItem));
+        }
+        throw WrongArgTypeException(__FUNCTION__);
     }
-    CATCH("Fail in NewItem!");
+    CATCH_AND_THROW
 }
 
-Local<Value> McClass::spawnItem(const Arguments& args) {
+Local<Value> McClass::spawnItem(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 2);
 
     try {
@@ -468,22 +487,14 @@ Local<Value> McClass::spawnItem(const Arguments& args) {
                 // IntPos
                 IntPos* posObj = IntPos::extractPos(args[1]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
-                else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
-                }
+                pos = *posObj;
             } else if (IsInstanceOf<FloatPos>(args[1])) {
                 // FloatPos
                 FloatPos* posObj = FloatPos::extractPos(args[1]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
-                else {
-                    pos = *posObj;
-                }
+                pos = static_cast<FloatVec4>(*posObj);
             } else {
-                LOG_WRONG_ARG_TYPE(__FUNCTION__);
-                return Local<Value>();
+                throw WrongArgTypeException(__FUNCTION__);
             }
         } else if (args.size() == 5) {
             // Number Pos
@@ -498,44 +509,39 @@ Local<Value> McClass::spawnItem(const Arguments& args) {
                 args[4].asNumber().toInt32()
             };
         } else {
-            LOG_WRONG_ARGS_COUNT(__FUNCTION__);
-            return Local<Value>();
+            throw WrongArgsCountException(__FUNCTION__);
         }
 
-        ItemStack* it = ItemClass::extract(args[0]);
-        if (it) {
+        if (ItemStack* it = ItemClass::extract(args[0])) {
             // By Item
             ;
             ItemActor* entity = ll::service::getLevel()->getSpawner().spawnItem(
-                ll::service::getLevel()->getDimension(pos.dim)->getBlockSourceFromMainChunkSource(),
+                ll::service::getLevel()->getDimension(pos.dim).lock()->getBlockSourceFromMainChunkSource(),
                 *it,
-                0,
+                nullptr,
                 pos.getVec3(),
                 pos.dim
             );
-            if (!entity) return Local<Value>(); // Null
-            else return EntityClass::newEntity(entity);
-        } else {
-            LOG_WRONG_ARG_TYPE(__FUNCTION__);
-            return Local<Value>();
+            if (!entity) return {}; // Null
+            return EntityClass::newEntity(entity);
         }
+        throw WrongArgTypeException(__FUNCTION__);
     }
-    CATCH("Fail in SpawnItem!");
+    CATCH_AND_THROW
 }
 
-Local<Value> ItemClass::match(const Arguments& args) {
+Local<Value> ItemClass::match(Arguments const& args) const {
     CHECK_ARGS_COUNT(args, 1);
     CHECK_ARG_TYPE(args[0], ValueKind::kObject)
     if (!IsInstanceOf<ItemClass>(args[0])) {
-        LOG_WRONG_ARG_TYPE(__FUNCTION__);
-        return Boolean::newBoolean(false);
+        throw WrongArgTypeException(__FUNCTION__);
     }
 
     try {
-        ItemStackBase itemNew = *ItemClass::extract(args[0]);
+        ItemStackBase itemNew = static_cast<ItemStackBase>(*extract(args[0]));
         if (!itemNew) return Boolean::newBoolean(false);
 
         return Boolean::newBoolean(get()->matchesItem(itemNew));
     }
-    CATCH("Fail in MatchItem!");
+    CATCH_AND_THROW
 }

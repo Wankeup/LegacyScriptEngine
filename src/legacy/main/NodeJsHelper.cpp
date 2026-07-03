@@ -1,28 +1,27 @@
-#pragma warning(disable : 4251)
+#include "legacy/main/NodeJsHelper.h"
 
-#include "main/NodeJsHelper.h"
-
-#include "api/EventAPI.h"
-#include "engine/EngineManager.h"
-#include "engine/EngineOwnData.h"
-#include "engine/RemoteCall.h"
+#include "fmt/format.h"
+#include "legacy/engine/EngineOwnData.h"
+#include "legacy/utils/Utils.h"
+#include "ll/api/Expected.h"
+#include "ll/api/base/Containers.h"
 #include "ll/api/chrono/GameChrono.h"
 #include "ll/api/coro/CoroTask.h"
-#include "ll/api/io/FileUtils.h"
+#include "ll/api/io/Logger.h"
+#include "ll/api/memory/Hook.h"
 #include "ll/api/service/GamingStatus.h"
-#include "ll/api/service/ServerInfo.h"
 #include "ll/api/thread/ServerThreadExecutor.h"
+#include "ll/api/utils/ErrorUtils.h"
 #include "ll/api/utils/StringUtils.h"
-#include "main/Global.h"
+#include "lse/Entry.h"
+#include "nlohmann/json.hpp"
 #include "uv/uv.h"
-#include "v8/v8.h"
+#include "v8/v8.h" // IWYU pragma: keep
 
-#include <functional>
+#define NODE_LIBRARY_NAME_W   L"libnode.dll"
+#define NODE_HOST_BINARY_NAME "node.exe"
 
 using ll::chrono_literals::operator""_tick;
-
-// pre-declare
-extern void BindAPIs(ScriptEngine* engine);
 
 namespace NodeJsHelper {
 
@@ -30,37 +29,117 @@ bool                     nodeJsInited = false;
 std::vector<std::string> args;
 std::vector<std::string> exec_args;
 
-std::unique_ptr<node::MultiIsolatePlatform>                                               platform = nullptr;
-std::unordered_map<script::ScriptEngine*, node::Environment*>                             environments;
-std::unordered_map<script::ScriptEngine*, std::unique_ptr<node::CommonEnvironmentSetup>>* setups =
-    new std::unordered_map<script::ScriptEngine*, std::unique_ptr<node::CommonEnvironmentSetup>>();
-std::unordered_map<node::Environment*, bool> isRunning;
-std::vector<node::Environment*>              uvLoopTask;
+std::unique_ptr<node::MultiIsolatePlatform>                                                      platform = nullptr;
+std::unordered_map<std::shared_ptr<ScriptEngine>, node::Environment*>                            environments;
+std::unordered_map<std::shared_ptr<ScriptEngine>, std::unique_ptr<node::CommonEnvironmentSetup>> setups;
+std::unordered_map<node::Environment*, bool>                                                     isRunning;
+std::set<node::Environment*>                                                                     uvLoopTask;
+
+ll::Expected<> PatchDelayImport(HMODULE hAddon, HMODULE hLibNode) {
+    BYTE* base = reinterpret_cast<BYTE*>(hAddon);
+    auto  dos  = reinterpret_cast<PIMAGE_DOS_HEADER>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        return ll::makeStringError("Invalid DOS signature.");
+    }
+    auto nt = reinterpret_cast<PIMAGE_NT_HEADERS>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) {
+        return ll::makeStringError("Invalid NT signature.");
+    }
+    DWORD rva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT].VirtualAddress;
+    if (!rva) {};
+    auto pDesc = reinterpret_cast<PIMAGE_DELAYLOAD_DESCRIPTOR>(base + rva);
+    for (; pDesc->DllNameRVA; ++pDesc) {
+        char* szDll = reinterpret_cast<char*>(base + pDesc->DllNameRVA);
+        if (_stricmp(szDll, NODE_HOST_BINARY_NAME) != 0) continue;
+
+        auto pIAT = reinterpret_cast<PIMAGE_THUNK_DATA>(base + pDesc->ImportAddressTableRVA);
+        auto pINT = reinterpret_cast<PIMAGE_THUNK_DATA>(base + pDesc->ImportNameTableRVA);
+
+        for (; pIAT->u1.Function; ++pIAT, ++pINT) {
+            FARPROC f;
+            if (pINT->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
+                // Import by Ordinal
+                WORD ordinal = IMAGE_ORDINAL(pINT->u1.Ordinal);
+                f            = GetProcAddress(hLibNode, MAKEINTRESOURCEA(ordinal));
+            } else {
+                // Import by name
+                auto name = reinterpret_cast<PIMAGE_IMPORT_BY_NAME>(base + pINT->u1.AddressOfData);
+                f         = GetProcAddress(hLibNode, name->Name);
+            }
+            if (f) {
+                DWORD oldProt;
+                VirtualProtect(&pIAT->u1.Function, sizeof(void*), PAGE_READWRITE, &oldProt);
+                pIAT->u1.Function = reinterpret_cast<decltype(pIAT->u1.Function)>(f);
+                VirtualProtect(&pIAT->u1.Function, sizeof(void*), oldProt, &oldProt);
+            }
+        }
+        break;
+    }
+    return {};
+}
+
+ll::DenseSet<HMODULE> cachedModules{};
+
+// patch in node?
+LL_STATIC_HOOK(
+    PatchDelayImportHook,
+    HookPriority::Normal,
+    LoadLibraryExW,
+    HMODULE,
+    LPCWSTR lpLibFileName,
+    HANDLE  hFile,
+    DWORD   dwFlags
+) {
+    auto hAddon = origin(lpLibFileName, hFile, dwFlags);
+    if (!cachedModules.contains(hAddon)) {
+        cachedModules.emplace(hAddon);
+        if (std::wstring_view(lpLibFileName).ends_with(L".node")) {
+            static HMODULE hLibNode = GetModuleHandle(NODE_LIBRARY_NAME_W);
+            if (!(hAddon && hLibNode)) return hAddon;
+            auto res = PatchDelayImport(hAddon, hLibNode);
+            if (res) return hAddon;
+            res.error().log(lse::LegacyScriptEngine::getLogger());
+        }
+    }
+    return hAddon;
+}
+
+std::unique_ptr<ll::memory::HookRegistrar<PatchDelayImportHook>> hook{};
 
 bool initNodeJs() {
+    if (lse::LegacyScriptEngine::getInstance().getConfig().fixLegacyAddons.value_or(true)) {
+        hook = std::make_unique<ll::memory::HookRegistrar<PatchDelayImportHook>>();
+    }
     // Init NodeJs
-    WCHAR buf[MAX_PATH];
-    GetCurrentDirectory(MAX_PATH, buf);
-    auto  path  = ll::string_utils::wstr2str(buf) + "\\bedrock_server_mod.exe";
-    char* cPath = (char*)path.c_str();
+    auto  path  = ll::string_utils::u8str2str(ll::sys_utils::getModulePath(nullptr).value().u8string());
+    char* cPath = const_cast<char*>(path.c_str());
     uv_setup_args(1, &cPath);
-    args        = {path};
+    auto full_args = std::vector<std::string>{path};
+#if defined(LSE_DEBUG) || defined(LSE_TEST)
+    full_args.insert(
+        full_args.end(),
+        {"--experimental-strip-types",
+         "--experimental-transform-types",
+         "--enable-source-maps",
+         "--disable-warning=ExperimentalWarning"}
+    );
+#endif
     auto result = node::InitializeOncePerProcess(
-        args,
+        full_args,
         {node::ProcessInitializationFlags::kNoInitializeV8,
          node::ProcessInitializationFlags::kNoInitializeNodeV8Platform}
     );
-    exec_args = result->exec_args();
     if (result->exit_code() != 0) {
-        lse::LegacyScriptEngine::getInstance().getSelf().getLogger().error(
-            "Failed to initialize node! NodeJs plugins won't be loaded"
-        );
+        lse::LegacyScriptEngine::getLogger().error("Failed to initialize node! NodeJs plugins won't be loaded");
+        for (std::string const& error : result->errors()) lse::LegacyScriptEngine::getLogger().error(error);
         return false;
     }
+    args      = result->args();
+    exec_args = result->exec_args();
 
     // Init V8
     using namespace v8;
-    platform = node::MultiIsolatePlatform::Create(std::thread::hardware_concurrency());
+    platform = node::MultiIsolatePlatform::Create(static_cast<int>(std::thread::hardware_concurrency()));
     V8::InitializePlatform(platform.get());
     V8::Initialize();
 
@@ -74,7 +153,7 @@ void shutdownNodeJs() {
     node::TearDownOncePerProcess();
 }
 
-script::ScriptEngine* newEngine() {
+std::shared_ptr<ScriptEngine> newEngine() {
     if (!nodeJsInited && !initNodeJs()) {
         return nullptr;
     }
@@ -90,11 +169,8 @@ script::ScriptEngine* newEngine() {
     // CHECK_EQ(start_io_thread_async_initialized.exchange(true), false) fail!
 
     if (!setup) {
-        for (const std::string& err : errors)
-            lse::LegacyScriptEngine::getInstance().getSelf().getLogger().error(
-                "CommonEnvironmentSetup Error: {}",
-                err.c_str()
-            );
+        for (std::string const& err : errors)
+            lse::LegacyScriptEngine::getLogger().error("CommonEnvironmentSetup Error: {}", err.c_str());
         return nullptr;
     }
     v8::Isolate*       isolate = setup->isolate();
@@ -105,90 +181,181 @@ script::ScriptEngine* newEngine() {
     v8::HandleScope    handle_scope(isolate);
     v8::Context::Scope context_scope(setup->context());
 
-    script::ScriptEngine* engine = new script::ScriptEngineImpl({}, isolate, setup->context(), false);
+    std::shared_ptr<ScriptEngine> engine(new ScriptEngineImpl({}, isolate, setup->context(), false), [](ScriptEngine*) {
+    });
 
-    lse::LegacyScriptEngine::getInstance().getSelf().getLogger().debug(
+    lse::LegacyScriptEngine::getLogger().debug(
         "Initialize ScriptEngine for node.js [{}]",
-        (void*)engine
+        static_cast<void*>(engine.get())
     );
     environments[engine] = env;
-    (*setups)[engine]    = std::move(setup);
+    setups[engine]       = std::move(setup);
     isRunning[env]       = true;
 
     node::AddEnvironmentCleanupHook(
         isolate,
         [](void* arg) {
-            static_cast<script::ScriptEngine*>(arg)->destroy();
-            lse::LegacyScriptEngine::getInstance().getSelf().getLogger().debug(
-                "Destory ScriptEngine for node.js [{}]",
-                arg
-            );
-            lse::LegacyScriptEngine::getInstance().getSelf().getLogger().debug("Destroy EnvironmentCleanupHook");
+            static_cast<ScriptEngine*>(arg)->destroy();
+            lse::LegacyScriptEngine::getLogger().debug("Destroy ScriptEngine for node.js [{}]", arg);
+            lse::LegacyScriptEngine::getLogger().debug("Destroy EnvironmentCleanupHook");
         },
-        engine
+        engine.get()
     );
+
     return engine;
 }
 
-bool loadPluginCode(script::ScriptEngine* engine, std::string entryScriptPath, std::string pluginDirPath) {
-    auto mainScripts = ll::file_utils::readFile(ll::string_utils::str2u8str(entryScriptPath));
-    if (!mainScripts) {
-        return false;
-    }
-
+bool loadPluginCode(
+    std::shared_ptr<ScriptEngine> engine,
+    std::string                   entryScriptPath,
+    std::string                   pluginDirPath,
+    bool                          esm
+) {
     // Process requireDir
     if (!pluginDirPath.ends_with('/')) pluginDirPath += "/";
+
+    // check if entryScriptPath is not absolute path
+    if (auto path = std::filesystem::path(entryScriptPath); !path.is_absolute()) {
+        entryScriptPath = ll::string_utils::u8str2str(std::filesystem::absolute(path).u8string());
+    }
+    if (auto path = std::filesystem::path(pluginDirPath); !path.is_absolute()) {
+        pluginDirPath = ll::string_utils::u8str2str(std::filesystem::absolute(path).u8string());
+    }
     pluginDirPath   = ll::string_utils::replaceAll(pluginDirPath, "\\", "/");
     entryScriptPath = ll::string_utils::replaceAll(entryScriptPath, "\\", "/");
 
     // Find setup
-    auto it = setups->find(engine);
-    if (it == setups->end()) return false;
+    auto it = setups.find(engine);
+    if (it == setups.end()) return false;
 
     auto env = it->second->env();
 
     try {
         using namespace v8;
-        EngineScope enter(engine);
+        EngineScope enter(engine.get());
 
-        string executeJs = "const __LLSE_PublicRequire = "
-                           "require('module').createRequire(process.cwd() + '/"
-                         + pluginDirPath + "');"
-                         + "const __LLSE_PublicModule = require('module'); "
-                           "__LLSE_PublicModule.exports = {};"
-                         + "ll.export = ll.exports; ll.import = ll.imports; "
+        std::string compiler = R"(
+            ll.import=ll.imports;
+            ll.export=ll.exports;)";
 
-                         + "(function (exports, require, module, __filename, __dirname) { " + mainScripts.value()
-                         + "\n})({}, __LLSE_PublicRequire, __LLSE_PublicModule, '" + entryScriptPath + "', '"
-                         + pluginDirPath + "'); "; // TODO __filename & __dirname need to be reviewed
-        // TODO: ESM Support
+        if (esm) {
+            compiler += fmt::format(
+                R"(
+                    const moduleUrl = require("url").pathToFileURL("{1}").href;
+                    const {{ promise, resolve, reject }} = Promise.withResolvers();
+                    let timeout = false;
+                    import(moduleUrl)
+                        .then(() => resolve())
+                        .catch((error) => {{
+                            const msg = `Failed to load ESM module: ${{require("util").inspect(error)}}`;
+                            if (timeout) logger.error(msg), process.exit(1);
+                            else resolve(msg);
+                        }});
+                    const timer = setTimeout(() => (timeout = true) && resolve(), 900);
+                    return promise.finally(() => clearTimeout(timer));
+                )",
+                pluginDirPath,
+                entryScriptPath
+            );
+        } else {
+            compiler += fmt::format(
+                R"(
+                    const __Path = require("path");
+                    const __PluginPath = __Path.join("{0}");
+                    const __PluginNodeModulesPath = __Path.join(__PluginPath, "node_modules");
+
+                    __dirname = __PluginPath;
+                    __filename = "{1}";
+                    (function ReplaceRequire() {{
+                        const PublicModule = require('module').Module;
+                        const OriginalResolveLookupPaths = PublicModule._resolveLookupPaths;
+                        PublicModule._resolveLookupPaths = function (request, parent) {{
+                            let result = OriginalResolveLookupPaths.call(this, request, parent);
+                            if (Array.isArray(result)) {{
+                                result.push(__PluginNodeModulesPath);
+                                result.push(__PluginPath);
+                            }}
+                            return result;
+                        }};
+                        require = PublicModule.createRequire(__PluginPath);
+                    }})();
+                    try{{
+                        require("{1}");
+                    }}catch(error){{
+                        return require("util").inspect(error);
+                    }};
+                    return;
+                )",
+                pluginDirPath,
+                entryScriptPath
+            );
+        }
 
         // Set exit handler
-        node::SetProcessExitHandler(env, [](node::Environment* env_, int exit_code) { stopEngine(getEngine(env_)); });
+        node::SetProcessExitHandler(env, [](node::Environment const* env_, int exit_code) {
+            auto engine = getEngine(env_);
+            lse::LegacyScriptEngine::getLogger().log(
+                exit_code == 0 ? ll::io::LogLevel::Debug : ll::io::LogLevel::Error,
+                "NodeJs plugin {} exited with code {}.",
+                getEngineData(engine)->pluginName,
+                exit_code
+            );
+            stopEngine(engine);
+        });
 
         // Load code
-        MaybeLocal<v8::Value> loadenv_ret = node::LoadEnvironment(env, executeJs.c_str());
-        if (loadenv_ret.IsEmpty()) // There has been a JS exception.
-        {
+        MaybeLocal<v8::Value> loadenv_ret = node::LoadEnvironment(env, compiler);
+        bool                  loadFailed  = loadenv_ret.IsEmpty();
+
+        auto& logger = lse::LegacyScriptEngine::getLogger();
+
+        if (!loadFailed) {
+            v8::Local<v8::Value> errorMsg = loadenv_ret.ToLocalChecked();
+            if (loadenv_ret.ToLocalChecked()->IsPromise()) {
+                // wait for module loaded
+                auto promise  = loadenv_ret.ToLocalChecked().As<v8::Promise>();
+                auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{1};
+                while (promise->State() == v8::Promise::kPending && std::chrono::steady_clock::now() <= deadline) {
+                    uv_run(it->second->event_loop(), UV_RUN_ONCE);
+                    it->second->isolate()->PerformMicrotaskCheckpoint();
+                }
+                if (promise->State() == v8::Promise::kFulfilled) {
+                    errorMsg = promise->Result();
+                }
+            }
+            if (errorMsg->IsString()) {
+                v8::String::Utf8Value value{it->second->isolate(), errorMsg};
+                logger.error(std::string_view{*value, static_cast<size_t>(value.length())});
+                loadFailed = true;
+            }
+        }
+        if (loadFailed) {
             node::Stop(env);
             uv_stop(it->second->event_loop());
             return false;
         }
-
         // Start libuv event loop
-        uvLoopTask.push_back(env);
+        uvLoopTask.insert(env);
         ll::coro::keepThis(
-            [engine, env, isRunningMap{&isRunning}, eventLoop{it->second->event_loop()}]() -> ll::coro::CoroTask<> {
+            [engine,
+             env,
+             isolate{it->second->isolate()},
+             isRunningMap{&isRunning},
+             eventLoop{it->second->event_loop()}]() -> ll::coro::CoroTask<> {
                 using namespace ll::chrono_literals;
-                while (std::find(uvLoopTask.begin(), uvLoopTask.end(), env) != uvLoopTask.end()) {
+                while (uvLoopTask.contains(env)) {
                     co_await 2_tick;
-                    if (!(ll::getGamingStatus() != ll::GamingStatus::Running) && (*isRunningMap)[env]) {
-                        EngineScope enter(engine);
+                    if (ll::getGamingStatus() == ll::GamingStatus::Running && (*isRunningMap)[env]) {
+                        EngineScope enter(engine.get());
+                        // v8::MicrotasksScope microtaskScope(isolate, v8::MicrotasksScope::kRunMicrotasks);
                         uv_run(eventLoop, UV_RUN_NOWAIT);
+                        // Manually perform microtasks because default MicrotasksPolicy is kExplicit
+                        isolate->PerformMicrotaskCheckpoint();
+                        // Or change MicrotasksPolicy to kScope and enter MicrotasksScope before uv_run
                     }
                     if ((ll::getGamingStatus() != ll::GamingStatus::Running)) {
                         uv_stop(eventLoop);
-                        lse::LegacyScriptEngine::getInstance().getSelf().getLogger().debug("Destroy ServerStopping");
+                        lse::LegacyScriptEngine::getLogger().debug("Destroy ServerStopping");
                     }
                 }
             }
@@ -200,15 +367,15 @@ bool loadPluginCode(script::ScriptEngine* engine, std::string entryScriptPath, s
     }
 }
 
-node::Environment* getEnvironmentOf(script::ScriptEngine* engine) {
+node::Environment* getEnvironmentOf(std::shared_ptr<ScriptEngine> const& engine) {
     auto it = environments.find(engine);
     if (it == environments.end()) return nullptr;
     return it->second;
 }
 
-v8::Isolate* getIsolateOf(script::ScriptEngine* engine) {
-    auto it = setups->find(engine);
-    if (it == setups->end()) return nullptr;
+v8::Isolate* getIsolateOf(std::shared_ptr<ScriptEngine> const& engine) {
+    auto it = setups.find(engine);
+    if (it == setups.end()) return nullptr;
     return it->second->isolate();
 }
 
@@ -222,35 +389,31 @@ bool stopEngine(node::Environment* env) {
         node::Stop(env);
 
         // Stop libuv event loop
-        auto it = std::find(uvLoopTask.begin(), uvLoopTask.end(), env);
+        auto it = uvLoopTask.find(env);
         if (it != uvLoopTask.end()) {
             uvLoopTask.erase(it);
         }
 
         return true;
     } catch (...) {
-        lse::LegacyScriptEngine::getInstance().getSelf().getLogger().error("Fail to stop engine {}", (void*)env);
-        ll::error_utils::printCurrentException(lse::LegacyScriptEngine::getInstance().getSelf().getLogger());
+        lse::LegacyScriptEngine::getLogger().error("Fail to stop engine {}", static_cast<void*>(env));
+        ll::error_utils::printCurrentException(lse::LegacyScriptEngine::getLogger());
         return false;
     }
 }
 
-bool stopEngine(script::ScriptEngine* engine) {
-    lse::LegacyScriptEngine::getInstance().getSelf().getLogger().info(
-        "NodeJs plugin {} exited.",
-        getEngineData(engine)->pluginName
-    );
+bool stopEngine(std::shared_ptr<ScriptEngine> const& engine) {
     auto env = NodeJsHelper::getEnvironmentOf(engine);
     return stopEngine(env);
 }
 
-script::ScriptEngine* getEngine(node::Environment* env) {
+std::shared_ptr<ScriptEngine> getEngine(node::Environment const* env) {
     for (auto& [engine, environment] : environments)
         if (env == environment) return engine;
     return nullptr;
 }
 
-std::string findEntryScript(const std::string& dirPath) {
+std::string findEntryScript(std::string const& dirPath) {
     auto dirPath_obj = std::filesystem::path(dirPath);
 
     std::filesystem::path packageFilePath = dirPath_obj / "package.json";
@@ -272,7 +435,7 @@ std::string findEntryScript(const std::string& dirPath) {
     }
 }
 
-std::string getPluginPackageName(const std::string& dirPath) {
+std::string getPluginPackageName(std::string const& dirPath) {
     auto dirPath_obj = std::filesystem::path(dirPath);
 
     std::filesystem::path packageFilePath = dirPath_obj / std::filesystem::path("package.json");
@@ -282,7 +445,7 @@ std::string getPluginPackageName(const std::string& dirPath) {
         std::ifstream  file(ll::string_utils::u8str2str(packageFilePath.make_preferred().u8string()));
         nlohmann::json j;
         file >> j;
-        std::string packageName = "";
+        std::string packageName{};
         if (j.contains("name")) {
             packageName = j["name"].get<std::string>();
         }
@@ -292,7 +455,7 @@ std::string getPluginPackageName(const std::string& dirPath) {
     }
 }
 
-bool doesPluginPackHasDependency(const std::string& dirPath) {
+bool doesPluginPackHasDependency(std::string const& dirPath) {
     auto dirPath_obj = std::filesystem::path(dirPath);
 
     std::filesystem::path packageFilePath = dirPath_obj / std::filesystem::path("package.json");
@@ -311,10 +474,29 @@ bool doesPluginPackHasDependency(const std::string& dirPath) {
     }
 }
 
-bool processConsoleNpmCmd(const std::string& cmd) {
-#ifdef LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS
-    if (cmd.starts_with("npm ")) {
-        executeNpmCommand(cmd);
+bool isESModulesSystem(std::string const& dirPath) {
+    auto dirPath_obj = std::filesystem::path(dirPath);
+
+    std::filesystem::path packageFilePath = dirPath_obj / std::filesystem::path("package.json");
+    if (!std::filesystem::exists(packageFilePath)) return false;
+
+    try {
+        std::ifstream  file(ll::string_utils::u8str2str(packageFilePath.make_preferred().u8string()));
+        nlohmann::json j;
+        file >> j;
+        if (j.contains("type") && j["type"] == "module") {
+            return true;
+        }
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool processConsoleNpmCmd(std::string const& cmd) {
+#ifdef LSE_BACKEND_NODEJS
+    if (cmd.starts_with("npm ") || cmd.starts_with("npx ")) {
+        executeNpmCommand(SplitCmdLine(cmd));
         return false;
     } else {
         return true;
@@ -324,35 +506,47 @@ bool processConsoleNpmCmd(const std::string& cmd) {
 #endif
 }
 
-int executeNpmCommand(std::string cmd, std::string workingDir) {
+int executeNpmCommand(std::vector<std::string> npmArgs, std::string workingDir) {
     if (!nodeJsInited && !initNodeJs()) {
         return -1;
     }
-    std::vector<std::string>                      errors;
+    std::string engineDir =
+        ll::string_utils::u8str2str(lse::LegacyScriptEngine::getInstance().getSelf().getModDir().u8string());
+    if (workingDir.empty()) workingDir = engineDir;
+    workingDir = ll::string_utils::replaceAll(workingDir, "\\", "/");
+
+    auto npmPath = std::filesystem::absolute(engineDir) / "node_modules" / "npm" / "bin" / "npm-cli.js";
+    std::vector<std::string>& env_args = npmArgs;
+    if (!env_args.empty() && (env_args[0] == "npm" || env_args[0] == "npx")) {
+        if (env_args[0] == "npx") {
+            npmPath = std::filesystem::absolute(engineDir) / "node_modules" / "npm" / "bin" / "npx-cli.js";
+        }
+        env_args.erase(env_args.begin());
+    }
+    auto scriptPath = ll::string_utils::replaceAll(ll::string_utils::u8str2str(npmPath.u8string()), "\\", "/");
+    env_args.insert(env_args.begin(), {args[0], scriptPath, engineDir, workingDir});
+
+    std::vector<std::string> errors;
+
     std::unique_ptr<node::CommonEnvironmentSetup> setup = node::CommonEnvironmentSetup::Create(
         platform.get(),
         &errors,
-        args,
+        env_args,
         exec_args,
         node::EnvironmentFlags::kOwnsProcessState
     );
+
     // if kOwnsInspector set, inspector_agent.cc:681
     // CHECK_EQ(start_io_thread_async_initialized.exchange(true), false) fail!
 
     if (!setup) {
-        for (const std::string& err : errors)
-            lse::LegacyScriptEngine::getInstance().getSelf().getLogger().error(
-                "CommonEnvironmentSetup Error: {}",
-                err.c_str()
-            );
+        for (std::string const& err : errors)
+            lse::LegacyScriptEngine::getLogger().error("CommonEnvironmentSetup Error: {}", err.c_str());
         return -1;
     }
     v8::Isolate*       isolate   = setup->isolate();
     node::Environment* env       = setup->env();
     int                exit_code = 0;
-
-    // Process workingDir
-    workingDir = ll::string_utils::replaceAll(workingDir, "\\", "/");
 
     {
         using namespace v8;
@@ -361,24 +555,49 @@ int executeNpmCommand(std::string cmd, std::string workingDir) {
         v8::HandleScope    handle_scope(isolate);
         v8::Context::Scope context_scope(setup->context());
 
-        string executeJs = "const oldCwd = process.cwd();"
-                           "const publicRequire = require('module').createRequire(oldCwd + "
-                           "'/plugins/legacy-script-engine-nodejs/');"
-                           "require('process').chdir('"
-                         + workingDir + "');" + "publicRequire('npm-js-interface')('" + cmd + "');"
-                         + "require('process').chdir(oldCwd);";
+        std::string executeJs = R"(
+            const path = require("path");
+            const util = require("util");
+            const [root, cwd] = util.parseArgs({ strict: false }).positionals;
+            const entry = process.argv[1];
+            process.argv.splice(process.argv.findIndex((a) => a == root), 1);
+            process.argv.splice(process.argv.findIndex((a) => a == cwd), 1);
+            const publicRequire = require("module").createRequire(path.resolve(root ?? process.cwd()) + path.sep);
+            // disable npm input
+            process.stdin.destroy();
+            function inputHandler(type) {
+                if (type === "read")
+                    throw "Input is not allow in server command.";
+            }
+            process.on("input", inputHandler);
+            process.once("exit", () => process.off("input", inputHandler));
+            // keep env
+            const modifiedEnv = {};
+            process.env = new Proxy(process.env, {
+                get: (target, k) => modifiedEnv[k] ?? target[k],
+                set: (_, k, v) => (modifiedEnv[k] = v),
+            });
+            let fakeCwd = path.resolve(cwd ?? root ?? process.cwd());
+            process.chdir = (cd) => (fakeCwd = path.resolve(fakeCwd, cd));
+            process.cwd = () => fakeCwd;
+            Object.defineProperties(process, {
+                title: { get: () => "", set: () => true },
+            });
+            publicRequire(entry);
+        )";
 
         try {
-            node::SetProcessExitHandler(env, [&](node::Environment* env_, int exit_code) { node::Stop(env); });
-            MaybeLocal<v8::Value> loadenv_ret = node::LoadEnvironment(env, executeJs.c_str());
+            node::SetProcessExitHandler(env, [&](node::Environment*, int exit_code_) {
+                exit_code = exit_code_;
+                node::Stop(env);
+            });
+            MaybeLocal<v8::Value> loadenv_ret = node::LoadEnvironment(env, executeJs);
             if (loadenv_ret.IsEmpty()) // There has been a JS exception.
-                throw "error";
-            exit_code = node::SpinEventLoop(env).FromMaybe(0);
+                throw std::runtime_error("Failed at LoadEnvironment");
+            exit_code = node::SpinEventLoop(env).FromMaybe(exit_code);
         } catch (...) {
-            lse::LegacyScriptEngine::getInstance().getSelf().getLogger().error(
-                "Fail to execute NPM command. Error occurs"
-            );
-            ll::error_utils::printCurrentException(lse::LegacyScriptEngine::getInstance().getSelf().getLogger());
+            lse::LegacyScriptEngine::getLogger().error("Fail to execute NPM command. Error occurs");
+            ll::error_utils::printCurrentException(lse::LegacyScriptEngine::getLogger());
         }
         node::Stop(env);
     }

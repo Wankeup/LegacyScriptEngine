@@ -33,45 +33,45 @@
 
 ActorDamageCause 为伤害原因枚举，枚举值如下，有问号的待验证，？？？待补充
 
-| 伤害原因            | 枚举值 | 解释                                     |
-|-----------------|-----|----------------------------------------|
-| None            | -1  | 其他                                     |
-| Override        | 0   | 非正常方式（如脚本直接设置血量为0），这种方式的伤害不会被盔甲与buff吸收 |
-| Contact         | 1   | 接触伤害（如仙人掌）                             |
-| EntityAttack    | 2   | 实体攻击                                   |
-| Projectile      | 3   | 抛射物攻击                                  |
-| Suffocation     | 4   | 窒息（密封空间）                               |
-| Fall            | 5   | 掉落                                     |
-| Fire            | 6   | 燃烧                                     |
-| FireTick        | 7   | 点燃                                     |
-| Lava            | 8   | 熔岩                                     |
-| Drowning        | 9   | 溺水                                     |
-| BlockExplosion  | 10  | 方块爆炸                                   |
-| EntityExplosion | 11  | 实体爆炸                                   |
-| Void            | 12  | 虚空                                     |
-| Suicide         | 13  | 自杀                                     |
-| Magic           | 14  | 尖牙对生物造成的伤害、守卫者对生物造成的魔法伤害和药水伤害等         |
-| Wither          | 15  | 凋零效果                                   |
-| Starve          | 16  | 饥饿                                     |
-| Anvil           | 17  | 下落的铁砧                                  |
-| Thorns          | 18  | 荆棘                                     |
-| FallingBlock    | 19  | 下落的方块                                  |
-| Piston          | 20  | 活塞                                     |
-| FlyIntoWall     | 21  | 动能（滑翔撞墙）                               |
-| Magma           | 22  | 岩浆块                                    |
-| Fireworks       | 23  | 烟花                                     |
-| Lightning       | 24  | 闪电                                     |
-| Charging        | 25  | 充能（？）                                  |
-| Temperature     | 26  | 温度 （雪人？）                               |
-| Freezing        | 27  | 冰冻                                     |
-| Stalactite      | 28  | 被钟乳石砸到                                 |
-| Stalagmite      | 29  | 掉落到石笋上                                 |
-| RamAttack       | 30  | 山羊冲撞                                   |
-| SonicBoom       | 31  | 坚守着音爆攻击                                |
-| Campfire        | 32  | 营火                                     |
-| SoulCampfire    | 33  | 灵魂营火                                   |
-| MaceSmash       | 34  | 下落攻击                                   |
-| All             | 35  | 所有                                     |
+| `ActorDamageCause` 枚举            | 值   | 解释                                     |
+| ---------------------------------- | --- | ---------------------------------------- |
+| `ActorDamageCause.None`            | -1  | 其他                                     |
+| `ActorDamageCause.Override`        | 0 | 非正常方式（如脚本直接设置血量为0），这种方式的伤害不会被盔甲与buff吸收 |
+| `ActorDamageCause.Contact`         | 1 | 接触伤害（如仙人掌）                       |
+| `ActorDamageCause.EntityAttack`    | 2 | 实体攻击                                 |
+| `ActorDamageCause.Projectile`      | 3 | 抛射物攻击                               |
+| `ActorDamageCause.Suffocation`     | 4 | 窒息（密封空间）                          |
+| `ActorDamageCause.Fall`            | 5 | 掉落                                     |
+| `ActorDamageCause.Fire`            | 6 | 燃烧                                     |
+| `ActorDamageCause.FireTick`        | 7 | 点燃                                     |
+| `ActorDamageCause.Lava`            | 8 | 熔岩                                     |
+| `ActorDamageCause.Drowning`        | 9 | 溺水                                     |
+| `ActorDamageCause.BlockExplosion`  | 10 | 方块爆炸                                 |
+| `ActorDamageCause.EntityExplosion` | 11 | 实体爆炸                                 |
+| `ActorDamageCause.Void`            | 12 | 虚空                                     |
+| `ActorDamageCause.SelfDestruct`    | 13 | 自杀                                     |
+| `ActorDamageCause.Magic`           | 14 | 尖牙对生物造成的伤害、守卫者对生物造成的魔法伤害和药水伤害等         |
+| `ActorDamageCause.Wither`          | 15 | 凋零效果                                   |
+| `ActorDamageCause.Starve`          | 16 | 饥饿                                     |
+| `ActorDamageCause.Anvil`           | 17 | 下落的铁砧                               |
+| `ActorDamageCause.Thorns`          | 18 | 荆棘                                     |
+| `ActorDamageCause.FallingBlock`    | 19 | 下落的方块                                |
+| `ActorDamageCause.Piston`          | 20 | 活塞                                     |
+| `ActorDamageCause.FlyIntoWall`     | 21 | 动能（滑翔撞墙）                          |
+| `ActorDamageCause.Magma`           | 22 | 岩浆块                                    |
+| `ActorDamageCause.Fireworks`       | 23 | 烟花                                     |
+| `ActorDamageCause.Lightning`       | 24 | 闪电                                     |
+| `ActorDamageCause.Charging`        | 25 | 充能（？）                               |
+| `ActorDamageCause.Temperature`     | 26 | 温度 （雪人？）                          |
+| `ActorDamageCause.Freezing`        | 27 | 冰冻                                     |
+| `ActorDamageCause.Stalactite`      | 28 | 被钟乳石砸到                              |
+| `ActorDamageCause.Stalagmite`      | 29 | 掉落到石笋上                              |
+| `ActorDamageCause.RamAttack`       | 30 | 山羊冲撞                                  |
+| `ActorDamageCause.SonicBoom`       | 31 | 坚守着音爆攻击                            |
+| `ActorDamageCause.Campfire`        | 32 | 营火                                     |
+| `ActorDamageCause.SoulCampfire`    | 33 | 灵魂营火                                 |
+| `ActorDamageCause.MaceSmash`       | 34 | 下落攻击                                 |
+| `ActorDamageCause.All`             | 35 | 所有                                     |
 
 #### `"onEntityExplode"` - 发生由实体引起的爆炸
 
@@ -118,6 +118,18 @@ ActorDamageCause 为伤害原因枚举，枚举值如下，有问号的待验证
 - 拦截事件：不可拦截
 
 此事件为实体成功生成后触发，不可直接拦截，如需拦截请使用entity.despawn()或entity.remove()
+
+#### `"onPortalTrySpawnPigZombie"` - 下界传送门尝试生成僵尸猪灵
+
+- 监听函数原型
+  `function(pos,axis)`
+- 参数：
+    - pos : `IntPos`  
+      发生尝试生成的位置（传送门方块坐标）
+    - axis : `Integer`  
+      传送门朝向枚举值（`0`=Unknown，`1`=X，`2`=Z）
+
+- 拦截事件：函数返回`false`
 
 #### `"onProjectileHitEntity"` - 实体被弹射物击中
 
@@ -255,3 +267,20 @@ ActorDamageCause 为伤害原因枚举，枚举值如下，有问号的待验证
 
 注：此事件为 `Addons` 中实体的 `TransformationComponent` 激活时触发，多用于引擎与Addon交互。由于转变前的实体指针很快被销毁，因此只提供
 `UniqueId`。
+
+
+#### `"onEndermanTakeBlock"` - 末影人搬运方块
+
+!!! warning
+    此事件仅在0.11.3及更高版本中可用。
+
+- 监听函数原型
+  `function(entity, block, pos)`
+- 参数：
+    - entity : `Entity`  
+      搬运方块的末影人
+    - block : `Block`  
+      被搬运的方块
+    - pos : `BlockPos`  
+      被搬运的方块坐标
+- 拦截事件：函数返回`false`

@@ -1,19 +1,15 @@
-#include "api/CommandOriginAPI.h"
+#include "legacy/api/CommandOriginAPI.h"
 
-#include "api/APIHelp.h"
-#include "api/BaseAPI.h"
-#include "api/EntityAPI.h"
-#include "api/NbtAPI.h"
-#include "api/PlayerAPI.h"
+#include "legacy/api/APIHelp.h"
+#include "legacy/api/BaseAPI.h"
+#include "legacy/api/EntityAPI.h"
+#include "legacy/api/NbtAPI.h"
+#include "legacy/api/PlayerAPI.h"
 #include "magic_enum.hpp"
-#include "mc/nbt/CompoundTag.h"
-#include "mc/server/commands/Command.h"
+#include "mc/deps/nbt/CompoundTag.h"
 #include "mc/server/commands/CommandOriginType.h"
 #include "mc/world/actor/player/Player.h"
-#include "mc/world/level/Level.h"
 #include "mc/world/level/dimension/Dimension.h"
-
-#include <magic_enum.hpp>
 
 //////////////////// Class Definition ////////////////////
 ClassDefine<void> OriginTypeStaticBuilder = EnumDefineBuilder<CommandOriginType>::build("OriginType");
@@ -36,80 +32,75 @@ ClassDefine<CommandOriginClass> CommandOriginClassBuilder =
 
 //////////////////// APIs ////////////////////
 
-CommandOriginClass::CommandOriginClass(CommandOrigin const* p)
+CommandOriginClass::CommandOriginClass(std::shared_ptr<CommandOrigin const> const& ori)
 : ScriptClass(ScriptClass::ConstructFromCpp<CommandOriginClass>{}),
-  ptr(p) {};
-
-Local<Object> CommandOriginClass::newCommandOrigin(CommandOrigin const* p) {
-    auto newp = new CommandOriginClass(p);
-    return newp->getScriptObject();
-}
+  origin(ori) {};
 
 Local<Value> CommandOriginClass::getOriginType() {
     try {
-        return Number::newNumber((int)get()->getOriginType());
+        return Number::newNumber(static_cast<int>(get()->getOriginType()));
     }
-    CATCH("Fail in getOriginType!");
+    CATCH_AND_THROW
 }
 
 Local<Value> CommandOriginClass::getOriginTypeName() {
     try {
         return String::newString(magic_enum::enum_name(get()->getOriginType()));
     }
-    CATCH("Fail in getOriginTypeName!");
+    CATCH_AND_THROW
 }
 
 Local<Value> CommandOriginClass::getOriginName() {
     try {
         return String::newString(get()->getName());
     }
-    CATCH("Fail in getOriginName!");
+    CATCH_AND_THROW
 }
 
 Local<Value> CommandOriginClass::getBlockPosition() {
     try {
         auto dim = get()->getDimension();
-        return IntPos::newPos(get()->getBlockPosition(), dim ? (int)dim->getDimensionId() : 0);
+        return IntPos::newPos(get()->getBlockPosition(), dim ? static_cast<int>(dim->getDimensionId()) : 0);
     }
-    CATCH("Fail in getBlockPosition!");
+    CATCH_AND_THROW
 }
 
 Local<Value> CommandOriginClass::getPosition() {
     try {
         auto dim = get()->getDimension();
-        return FloatPos::newPos(get()->getWorldPosition(), dim ? (int)dim->getDimensionId() : 0);
+        return FloatPos::newPos(get()->getWorldPosition(), dim ? static_cast<int>(dim->getDimensionId()) : 0);
     }
-    CATCH("Fail in getPosition!");
+    CATCH_AND_THROW
 }
 
 Local<Value> CommandOriginClass::getEntity() {
     try {
         auto entity = get()->getEntity();
-        if (!entity) return Local<Value>();
+        if (!entity) return {};
         return EntityClass::newEntity(entity);
     }
-    CATCH("Fail in getEntity!");
+    CATCH_AND_THROW
 }
 
 Local<Value> CommandOriginClass::getPlayer() {
     try {
         Actor* player = get()->getEntity();
-        if (!player) return Local<Value>();
+        if (!player) return {};
         return PlayerClass::newPlayer(static_cast<Player*>(player));
     }
-    CATCH("Fail in getPlayer!");
+    CATCH_AND_THROW
 }
 
-Local<Value> CommandOriginClass::getNbt(const Arguments&) {
+Local<Value> CommandOriginClass::getNbt(Arguments const&) {
     try {
         return NbtCompoundClass::pack(std::make_unique<CompoundTag>(get()->serialize()));
     }
-    CATCH("Fail in getNbt!");
+    CATCH_AND_THROW
 }
 
 Local<Value> CommandOriginClass::toString() {
     try {
         return String::newString("<CommandOrigin>");
     }
-    CATCH("Fail in toString!");
+    CATCH_AND_THROW
 }

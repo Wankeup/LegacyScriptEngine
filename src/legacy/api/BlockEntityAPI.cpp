@@ -1,17 +1,15 @@
-#include "api/BlockEntityAPI.h"
+#include "legacy/api/BlockEntityAPI.h"
 
-#include "api/APIHelp.h"
-#include "api/BaseAPI.h"
-#include "api/BlockAPI.h"
-#include "api/NbtAPI.h"
+#include "legacy/api/APIHelp.h"
+#include "legacy/api/BaseAPI.h"
+#include "legacy/api/BlockAPI.h"
+#include "legacy/api/NbtAPI.h"
 #include "ll/api/service/Bedrock.h"
 #include "lse/api/MoreGlobal.h"
-#include "main/Global.h"
 #include "mc/dataloadhelper/DefaultDataLoadHelper.h"
-#include "mc/nbt/CompoundTag.h"
+#include "mc/deps/nbt/CompoundTag.h"
 #include "mc/world/item/SaveContextFactory.h"
 #include "mc/world/level/BlockSource.h"
-#include "mc/world/level/block/Block.h"
 #include "mc/world/level/block/actor/BlockActor.h"
 #include "mc/world/level/dimension/Dimension.h"
 
@@ -41,63 +39,64 @@ Local<Object> BlockEntityClass::newBlockEntity(BlockActor* be, int dim) {
 }
 
 // 生成函数
-BlockActor* BlockEntityClass::extract(Local<Value> v) {
+BlockActor* BlockEntityClass::extract(Local<Value> const& v) {
     if (EngineScope::currentEngine()->isInstanceOf<BlockEntityClass>(v))
         return EngineScope::currentEngine()->getNativeInstance<BlockEntityClass>(v)->get();
-    else return nullptr;
+    return nullptr;
 }
 
 // 成员函数
-Local<Value> BlockEntityClass::getPos() {
+Local<Value> BlockEntityClass::getPos() const {
     try {
-        return IntPos::newPos(blockEntity->getPosition(), dim);
+        return IntPos::newPos(blockEntity->mPosition, dim);
     }
-    CATCH("Fail in getBlockEntityPos!")
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockEntityClass::getName() {
+Local<Value> BlockEntityClass::getName() const {
     try {
         return String::newString(blockEntity->getName());
     }
-    CATCH("Fail in getName!")
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockEntityClass::getType() {
+Local<Value> BlockEntityClass::getType() const {
     try {
-        return Number::newNumber((int)blockEntity->getType());
+        return Number::newNumber(static_cast<int>(blockEntity->mType));
     }
-    CATCH("Fail in getBlockEntityType!")
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockEntityClass::getNbt(const Arguments&) {
+Local<Value> BlockEntityClass::getNbt(Arguments const&) const {
     try {
-        CompoundTag* tag = new CompoundTag();
+        auto tag = std::make_unique<CompoundTag>();
         blockEntity->save(*tag, *SaveContextFactory::createCloneSaveContext());
         return NbtCompoundClass::pack(std::move(tag)); // Not sure is that will get right value
     }
-    CATCH("Fail in getNbt!")
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockEntityClass::setNbt(const Arguments& args) {
+Local<Value> BlockEntityClass::setNbt(Arguments const& args) const {
     using namespace lse::api;
     CHECK_ARGS_COUNT(args, 1);
 
     try {
         auto nbt = NbtCompoundClass::extract(args[0]);
         if (!nbt) {
-            return Local<Value>();
+            return {};
         }
         blockEntity->load(*ll::service::getLevel(), *nbt, MoreGlobal::defaultDataLoadHelper());
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in setNbt!")
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockEntityClass::getBlock(const Arguments&) {
+Local<Value> BlockEntityClass::getBlock(Arguments const&) const {
     try {
-        BlockPos bp = blockEntity->getPosition();
-        auto&    bl = ll::service::getLevel()->getDimension(dim)->getBlockSourceFromMainChunkSource().getBlock(bp);
-        return BlockClass::newBlock(bl, bp, dim);
+        BlockPos blockPos = blockEntity->mPosition;
+        auto&    block =
+            ll::service::getLevel()->getDimension(dim).lock()->getBlockSourceFromMainChunkSource().getBlock(blockPos);
+        return BlockClass::newBlock(block, blockPos, dim);
     }
-    CATCH("Fail in getBlock!")
+    CATCH_AND_THROW
 }

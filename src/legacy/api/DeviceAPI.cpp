@@ -1,16 +1,15 @@
-#include "api/DeviceAPI.h"
+#include "legacy/api/DeviceAPI.h"
 
-#include "api/APIHelp.h"
+#include "legacy/api/APIHelp.h"
 #include "ll/api/service/Bedrock.h"
 #include "magic_enum.hpp"
-#include "mc/certificates/WebToken.h"
-#include "mc/common/ActorRuntimeID.h"
+#include "mc/deps/certificates/WebToken.h"
 #include "mc/deps/input/InputMode.h"
 #include "mc/deps/json/Value.h"
+#include "mc/legacy/ActorRuntimeID.h"
 #include "mc/network/ConnectionRequest.h"
 #include "mc/network/ServerNetworkHandler.h"
 #include "mc/world/actor/player/Player.h"
-#include "mc/world/level/Level.h"
 
 #include <string>
 
@@ -34,130 +33,127 @@ ClassDefine<DeviceClass> DeviceClassBuilder = defineClass<DeviceClass>("LLSE_Dev
 //////////////////// Classes ////////////////////
 
 // 生成函数
-Local<Object> DeviceClass::newDevice(Player* player) {
+DeviceClass::DeviceClass(Player const* player) : ScriptClass(ScriptClass::ConstructFromCpp<DeviceClass>{}) {
+    try {
+        if (player) {
+            mWeakEntity = player->getEntityContext().getWeakRef();
+            mValid      = true;
+        }
+    } catch (...) {}
+}
+
+Local<Object> DeviceClass::newDevice(Player const* player) {
     auto newp = new DeviceClass(player);
     return newp->getScriptObject();
 }
 
 // 成员函数
-void DeviceClass::setPlayer(Player* player) {
-    try {
-        if (player) {
-            mWeakEntity = player->getWeakEntity();
-            mValid      = true;
-        }
-    } catch (...) {
-        mValid = false;
-    }
-}
-
-Player* DeviceClass::getPlayer() {
+Player* DeviceClass::getPlayer() const {
     if (mValid) {
         return mWeakEntity.tryUnwrap<Player>().as_ptr();
-    } else {
-        return nullptr;
     }
+    return nullptr;
 }
 
-Local<Value> DeviceClass::getIP() {
+Local<Value> DeviceClass::getIP() const {
     try {
         Player* player = getPlayer();
-        if (!player) return Local<Value>();
+        if (!player) return {};
 
         return String::newString(player->getNetworkIdentifier().getIPAndPort());
     }
-    CATCH("Fail in GetIP!")
+    CATCH_AND_THROW
 }
 
-Local<Value> DeviceClass::getAvgPing() {
+Local<Value> DeviceClass::getAvgPing() const {
     try {
         Player* player = getPlayer();
-        if (!player) return Local<Value>();
+        if (!player) return {};
 
-        return Number::newNumber(player->getNetworkStatus()->mAveragePing);
+        return Number::newNumber(player->getNetworkStatus()->mAveragePing.get().count());
     }
-    CATCH("Fail in getAvgPing!")
+    CATCH_AND_THROW
 }
 
-Local<Value> DeviceClass::getAvgPacketLoss() {
+Local<Value> DeviceClass::getAvgPacketLoss() const {
     try {
         Player* player = getPlayer();
-        if (!player) return Local<Value>();
+        if (!player) return {};
 
         return Number::newNumber(player->getNetworkStatus()->mAveragePacketLoss);
     }
-    CATCH("Fail in getAvgPacketLoss!")
+    CATCH_AND_THROW
 }
 
-Local<Value> DeviceClass::getLastPing() {
+Local<Value> DeviceClass::getLastPing() const {
     try {
         Player* player = getPlayer();
-        if (!player) return Local<Value>();
+        if (!player) return {};
 
-        return Number::newNumber(player->getNetworkStatus()->mCurrentPing);
+        return Number::newNumber(player->getNetworkStatus()->mCurrentPing.get().count());
     }
-    CATCH("Fail in getLastPing!")
+    CATCH_AND_THROW
 }
 
-Local<Value> DeviceClass::getLastPacketLoss() {
+Local<Value> DeviceClass::getLastPacketLoss() const {
     try {
         Player* player = getPlayer();
-        if (!player) return Local<Value>();
+        if (!player) return {};
 
         return Number::newNumber(player->getNetworkStatus()->mCurrentPacketLoss);
     }
-    CATCH("Fail in getLastPacketLoss!")
+    CATCH_AND_THROW
 }
 
-Local<Value> DeviceClass::getOs() {
+Local<Value> DeviceClass::getOs() const {
     try {
         Player* player = getPlayer();
-        if (!player) return Local<Value>();
+        if (!player) return {};
 
-        return String::newString(magic_enum::enum_name(player->getPlatform()));
+        return String::newString(magic_enum::enum_name(player->mBuildPlatform));
     }
-    CATCH("Fail in getOs!")
+    CATCH_AND_THROW
 }
 
-Local<Value> DeviceClass::getServerAddress() {
+Local<Value> DeviceClass::getServerAddress() const {
     try {
         Player* player = getPlayer();
-        if (!player) return Local<Value>();
+        if (!player) return {};
 
         if (player->isSimulatedPlayer()) String::newString("unknown");
         Json::Value& requestJson = player->getConnectionRequest()->mRawToken->mDataInfo;
         return String::newString(requestJson["ServerAddress"].asString("unknown"));
     }
-    CATCH("Fail in getServerAddress!")
+    CATCH_AND_THROW
 }
 
-Local<Value> DeviceClass::getClientId() {
+Local<Value> DeviceClass::getClientId() const {
     try {
         Player* player = getPlayer();
-        if (!player) return Local<Value>();
+        if (!player) return {};
 
         return String::newString(player->getConnectionRequest()->getDeviceId());
     }
-    CATCH("Fail in getClientId!")
+    CATCH_AND_THROW
 }
 
-Local<Value> DeviceClass::getInputMode() {
+Local<Value> DeviceClass::getInputMode() const {
     try {
         Player* player = getPlayer();
-        if (!player) return Local<Value>();
+        if (!player) return {};
 
         Json::Value& requestJson = player->getConnectionRequest()->mRawToken->mDataInfo;
         return Number::newNumber(requestJson["CurrentInputMode"].asInt(0));
     }
-    CATCH("Fail in getInputMode!")
+    CATCH_AND_THROW
 }
 
 // Local<Value> DeviceClass::getPlayMode() {
 //     try {
 //         Player* player = getPlayer();
-//         if (!player) return Local<Value>();
+//         if (!player) return {};
 
 //         return Number::newNumber(0);
 //     }
-//     CATCH("Fail in getPlayMode!")
+//     CATCH_AND_THROW
 // }

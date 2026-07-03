@@ -57,6 +57,33 @@ For each button on the form, set the corresponding icon as follows:
 2. If you use a URL path, you can put the full URL here, like `https://www.baidu.com/img/flexible/logo/pc/result.png`
 3. If you don't need to display an image for this button, just don't pass in this parameter.
 
+#### Add a Header to the Form
+
+`fm.addHeader(text)`
+
+- Parameters:
+    - text : `String`  
+      Header.
+- Return value: The processed form object (for other operations in the chain).
+- Return value type: `SimpleForm`
+
+#### Add a Line of Text to the Form
+
+`fm.addLabel(text)`
+
+- Parameters:
+    - text : `String`  
+      Line of text.
+- Return value: The processed form object (for other operations in the chain).
+- Return value type: `SimpleForm`
+
+#### Add a Divider to the Form
+
+`fm.addDivider()`
+
+- Return value: The processed form object (for other operations in the chain).
+- Return value type: `SimpleForm`
+
 ### Send Form
 
 Finally, when everything is in place, you can send the configured form object to the player and listen for player
@@ -66,13 +93,15 @@ are called when there is player interaction, without fighting.
 
 For a player object `pl`, using the function:
 
-`pl.sendForm(fm,callback)`
+`pl.sendForm(fm,callback[,forUpdating])`
 
 - Parameters:
     - fm : `SimpleForm`  
       The configured form object.
     - callback : `Function`  
       Callback function to be called after the player interacts with the form element.
+    - forUpdating : `Boolean`
+      (Optional parameter, added in 0.11.0) Whether the form is sent for updating. The default value is false, meaning it is not for form updating.
 - Return value: The sent form ID.
 - Return value type: `Integer`
     - If the return value is `Null`, it means the sending failed.
@@ -118,6 +147,16 @@ For a specific form object `fm`, the following functions are available:
 - Return value: The processed form object (for other operations in the chain).
 - Return value type: `CustomForm`
 
+#### Add a Header to the Form
+
+`fm.addHeader(text)`
+
+- Parameters:
+    - text : `String`  
+      Header.
+- Return value: The processed form object (for other operations in the chain).
+- Return value type: `CustomForm`
+
 #### Add a Line of Text to the Form
 
 `fm.addLabel(text)`
@@ -128,9 +167,16 @@ For a specific form object `fm`, the following functions are available:
 - Return value: The processed form object (for other operations in the chain).
 - Return value type: `CustomForm`
 
+#### Add a Divider to the Form
+
+`fm.addDivider()`
+
+- Return value: The processed form object (for other operations in the chain).
+- Return value type: `CustomForm`
+
 #### Add a Row of Input Boxes to the Form
 
-`fm.addInput(title[,placeholder,default])`
+`fm.addInput(title[,placeholder,default,tooltip])`
 
 - Parameters:
 
@@ -139,25 +185,29 @@ For a specific form object `fm`, the following functions are available:
     - placeholder : `String`  
       (Optional parameter) The default prompt in the input box.
     - default : `String`  
-      (Optional parameter) the default input in the input box.
+      (Optional parameter) The default input in the input box.
+    - tooltip : `String`
+      (Optional parameter, added in 0.12.0) The text of tooltip
 - Return value: The processed form object (for other operations in the chain).
 - Return value type: `CustomForm`
 
 #### Add a Row of Switch Options to the Form
 
-`fm.addSwitch(title[,default])`
+`fm.addSwitch(title[,default,tooltip])`
 
 - Parameters:
     - title : `String`  
       Description text for a switch option.
     - default : `Boolean`  
       (Optional parameter) Default state of the switch on/off.
+    - tooltip : `String`
+      (Optional parameter, added in 0.12.0) The text of tooltip
 - Return value: The processed form object (for other operations in the chain).
 - Return value type: `CustomForm`
 
 #### Add a Drop-Down Menu to the Form
 
-`fm.addDropdown(title,items[,default])`
+`fm.addDropdown(title,items[,default,tooltip])`
 
 - Parameters:
 
@@ -170,12 +220,15 @@ For a specific form object `fm`, the following functions are available:
     - default : `Integer`  
       (Optional parameter) The number of the list item selected by default in the drop-down menu.  
       The sequence number starts from 0. The default is 0, that is, the first item in the list is selected by default.
+
+    - tooltip : `String`
+      (Optional parameter, added in 0.12.0) The text of tooltip
 - Return value: The processed form object (for other operations in the chain).
 - Return value type: `CustomForm`
 
 #### Add a Row of Cursor Sliders to the Form
 
-`fm.addSlider(title,min,max[,step,default])`
+`fm.addSlider(title,min,max[,step,default,tooltip])`
 
 - Parameters:
     - title : `String`  
@@ -190,12 +243,14 @@ For a specific form object `fm`, the following functions are available:
       (Optional parameter) The default initial grid number of the cursor slider, the value must be between the minimum
       and maximum grid number.  
       Defaults to 0, i.e. the slider is at the beginning of the slider row.
+    - tooltip : `String`
+      (Optional parameter, added in 0.12.0) The text of tooltip
 - Return value: The processed form object (for other operations in the chain).
 - Return value type: `CustomForm`
 
 #### Add a Row of Step Sliders to the Form
 
-`fm.addStepSlider(title,items[,default])`
+`fm.addStepSlider(title,items[,default,tooltip])`
 
 - Parameters:
     - title : `String`  
@@ -207,6 +262,22 @@ For a specific form object `fm`, the following functions are available:
     - default : `Integer`  
       (Optional parameter) Default initial options for step slider. Serial numbers start from 0.  
       Defaults to 0, i.e. the slider is at the beginning of the slider row.
+
+    - tooltip : `String`
+      (Optional parameter, added in 0.12.0) The text of tooltip
+- Return value: The processed form object (for other operations in the chain).
+- Return value type: `CustomForm`
+
+#### Set the Text of the Submit Button
+
+!!! warning
+    This API is only available in 0.11.0 and later versions.
+
+`fm.setSubmitButton(text)`
+
+- Parameters:
+    - text : `String`  
+      Text of the submit button.
 - Return value: The processed form object (for other operations in the chain).
 - Return value type: `CustomForm`
 
@@ -219,13 +290,15 @@ are called when there is player interaction, without fighting.
 
 For a player object `pl`, using the function:
 
-`pl.sendForm(fm,callback)`
+`pl.sendForm(fm,callback[,forUpdating])`
 
 - Parameters:
     - fm : `CustomForm`  
       Configured custom form object.
     - callback : `Function`  
       Callback function to be called after the player submits the form.
+    - forUpdating : `Boolean`
+      (Optional parameter, added in 0.11.0) Whether the form is sent for updating. The default value is false, meaning it is not for form updating.
 - Return value: The sent form ID.
 - Return value type: `Integer`
     - If the return value is `Null`, it means the sending failed.

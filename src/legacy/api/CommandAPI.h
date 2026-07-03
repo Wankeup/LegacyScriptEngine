@@ -1,12 +1,13 @@
 #pragma once
-#include "api/CommandCompatibleAPI.h"
+
+#include "legacy/utils/UsingScriptX.h"
 #include "ll/api/command/CommandHandle.h"
 
 extern ClassDefine<void> ParamTypeStaticBuilder;
 extern ClassDefine<void> PermissionStaticBuilder;
 extern ClassDefine<void> ParamOptionStaticBuilder;
 
-bool LLSERemoveCmdCallback(script::ScriptEngine* engine);
+bool LLSERemoveCmdCallback(std::shared_ptr<script::ScriptEngine> engine);
 
 enum class OldCommandPermissionLevel : schar {
     Any         = 0x0,
@@ -48,12 +49,12 @@ enum class OldParameterType : size_t {
 };
 
 class CommandClass : public ScriptClass {
-    std::string                        commandName;
-    std::string                        description;
-    inline ll::command::CommandHandle& get() {
-        return ll::command::CommandRegistrar::getInstance().getOrCreateCommand(commandName);
+    std::string                 commandName;
+    std::string                 description;
+    ll::command::CommandHandle& get() const {
+        return ll::command::CommandRegistrar::getInstance(false).getOrCreateCommand(commandName);
     }
-    inline std::vector<std::string> parseStringList(Local<Array> arr) {
+    static std::vector<std::string> parseStringList(Local<Array> const& arr) {
         if (arr.size() == 0 || !arr.get(0).isString()) return {};
         std::vector<std::string> strs;
         for (size_t i = 0; i < arr.size(); ++i) {
@@ -61,7 +62,7 @@ class CommandClass : public ScriptClass {
         }
         return std::move(strs);
     }
-    inline Local<Value> getStringArray(std::vector<std::string> values) {
+    static Local<Value> getStringArray(std::vector<std::string> const& values) {
         Local<Array> arr = Array::newArray(values.size());
         for (auto& str : values) {
             arr.add(String::newString(str));
@@ -70,24 +71,24 @@ class CommandClass : public ScriptClass {
     }
 
 public:
-    CommandClass(std::string& name);
-    static Local<Object> newCommand(std::string& name);
-    Local<Value>         getName();
-    Local<Value>         setAlias(const Arguments& args);
-    Local<Value>         setEnum(const Arguments& args);
-    Local<Value>         newParameter(const Arguments& args);
-    Local<Value>         mandatory(const Arguments& args);
-    Local<Value>         optional(const Arguments& args);
-    Local<Value>         addOverload(const Arguments& args);
-    Local<Value>         setCallback(const Arguments& args);
-    Local<Value>         setup(const Arguments& args);
+    CommandClass(std::string const& name);
+    static Local<Object> newCommand(std::string const& name);
+    Local<Value>         getName() const;
+    Local<Value>         setAlias(Arguments const& args);
+    Local<Value>         setEnum(Arguments const& args);
+    Local<Value>         newParameter(Arguments const& args) const;
+    Local<Value>         mandatory(Arguments const& args) const;
+    Local<Value>         optional(Arguments const& args) const;
+    Local<Value>         addOverload(Arguments const& args);
+    Local<Value>         setCallback(Arguments const& args) const;
+    Local<Value>         setup(Arguments const& args) const;
     Local<Value>         isRegistered();
-    Local<Value>         toString(const Arguments& args);
-    Local<Value>         setSoftEnum(const Arguments& args);
-    Local<Value>         addSoftEnumValues(const Arguments& args);
-    Local<Value>         removeSoftEnumValues(const Arguments& args);
-    Local<Value>         getSoftEnumValues(const Arguments& args);
-    Local<Value>         getSoftEnumNames(const Arguments& args);
+    Local<Value>         toString(Arguments const& args);
+    Local<Value>         setSoftEnum(Arguments const& args);
+    Local<Value>         addSoftEnumValues(Arguments const& args);
+    Local<Value>         removeSoftEnumValues(Arguments const& args);
+    Local<Value>         getSoftEnumValues(Arguments const& args);
+    Local<Value>         getSoftEnumNames(Arguments const& args);
 };
 
 extern ClassDefine<CommandClass> CommandClassBuilder;

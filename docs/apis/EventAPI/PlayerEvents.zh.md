@@ -135,7 +135,7 @@
 #### `"onAttackEntity"` - 玩家攻击实体
 
 - 监听函数原型
-  `function(player,entity,damage)`
+  `function(player,entity)`
 - 参数：
   - player : `Player` 
     攻击实体的玩家对象
@@ -465,9 +465,7 @@
 
   - block : `Block`  
     被关闭的容器方块对象
-- 拦截事件：函数返回`false`
-
-由于监听函数下限制，目前支持监听关闭的容器有：箱子（`minecraft:chest`）、木桶（`minecraft:barrel`）
+- 拦截事件：不可以拦截
 
 
 

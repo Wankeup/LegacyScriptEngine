@@ -7,8 +7,8 @@
 
 ### 📄 目录
 
-🔑 [KVDB 键值对数据库](#🔑-键---值对-nosql数据库)  
-📋 [SQL数据库](#📋-sql数据库)
+🔑 [KVDB 键值对数据库](#-键---值对-nosql数据库)  
+📋 [SQL数据库](#-sql数据库)
 - 🔍 [预准备语句](#sql预准备语句)
 
 附： 各SQL的官方文档  
@@ -102,11 +102,7 @@
 
 数据库关闭之后，请勿继续使用！
 
-
-
 ------
-
-
 
 ## 📋 SQL数据库
 
@@ -115,8 +111,6 @@ SQL数据库适用于使用SQL语句处理大量的关系型数据。接口底�
 注：以下API若未注明均可能会抛出异常，建议使用各语言的异常处理语句嵌套。JavaScript可使用`try ... catch`语句，Lua可使用`pcall`。一般情况下未抛出错误即代表调用成功。
 
 > 如果您是JavaScript插件开发者，您还可以尝试使用[Yoyo](https://gitee.com/Y_oyo)封装的LLDB链式操作库(主要面向不了解SQL语法的新手开发者)。详情 [点击这里](https://gitee.com/Y_oyo/yoyo-mcbe-lite-xloader-item/blob/master/sql/yoyoSqlite.js%202.0.0.md)
-
-
 
 ### 打开一个SQL数据库会话
 
@@ -127,7 +121,7 @@ SQL数据库适用于使用SQL语句处理大量的关系型数据。接口底�
 
 - 参数：
   - type : `String`  
-    数据库的类型，目前仅支持`"sqlite3"`
+    数据库的类型，支持`"sqlite3"`和`"mysql"`
   - params: `Object`  
     [连接参数](#连接参数)
 - 返回值：打开的数据库会话对象
@@ -148,12 +142,12 @@ SQL数据库适用于使用SQL语句处理大量的关系型数据。接口底�
 
 #### 连接参数
 
-| 键        | 用途                     | 可用数据库 | 示例              | 默认值  |
-| --------- | ------------------------ | ---------- | ----------------- | ------- |
-| path      | 指定数据库所在路径       | `SQLite`   | `plugins/test.db` | -       |
-| create    | 数据库不存在是否自动创建 | `SQLite`   | `true`/`false`    | `true`  |
-| readonly  | 以只读模式打开           | `SQLite`   | `true`/`false`    | `false` |
-| readwrite | 以读写模式打开           | `SQLite`   | `true`/`false`    | `true`  |
+| 键         | 用途           | 可用数据库    | 示例                | 默认值     |
+|-----------|--------------|----------|-------------------|---------|
+| path      | 指定数据库所在路径    | `SQLite` | `plugins/test.db` | -       |
+| create    | 数据库不存在是否自动创建 | `SQLite` | `true`/`false`    | `true`  |
+| readonly  | 以只读模式打开      | `SQLite` | `true`/`false`    | `false` |
+| readwrite | 以读写模式打开      | `SQLite` | `true`/`false`    | `true`  |
 
 
 
@@ -223,7 +217,7 @@ SQL数据库适用于使用SQL语句处理大量的关系型数据。接口底�
 
 
 > 预准备语句(Prepared Statement)是SQL的一个重要部分。它的实现原理是：先将含有未知参数的SQL语句(发往服务端)处理、编译，再绑定参数，最终执行并返回结果。各个SQL的预准备语句实现可能不同，其预准备语句的表示方法也可能存在差异，所以请务必仔细阅读文档(直接去阅读对应SQL的官方文档则更好)。  
-预准备语句的主要作用是防止SQL注入攻击——一种很常见的、危险的攻击。如果在未经检验的情况下直接使用用户输入的数据(就像BDS一样 xD)，就可能会造成免密码登录甚至数据丢失(注入执行`DROP TABLE`或`DROP DATABASE`)等严重后果。所以在处理用户输入的数据时，更推荐使用预准备语句。其次，它可以在(服务器)只编译一次语句的情况下，实现多次输入。
+> 预准备语句的主要作用是防止SQL注入攻击——一种很常见的、危险的攻击。如果在未经检验的情况下直接使用用户输入的数据(就像BDS一样 xD)，就可能会造成免密码登录甚至数据丢失(注入执行`DROP TABLE`或`DROP DATABASE`)等严重后果。所以在处理用户输入的数据时，更推荐使用预准备语句。其次，它可以在(服务器)只编译一次语句的情况下，实现多次输入。
 
 
 
@@ -266,10 +260,10 @@ INSERT INTO table VALUES ($X, ?Y, :Z);
 
 #### 预准备语句对象 - 属性
 
-| 属性                | 含义                                                                                        | 类型      | 另见                                                                                                                                    |
-| ------------------- | ------------------------------------------------------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `stmt.affectedRows` | 获取该预准备语句执行后影响的行数(仅对`INSERT` `UPDATE` `DELETE` `REPLACE` 等语句生效)       | `Integer` | [SQLite](https://www.sqlite.org/c3ref/changes.html) [MySQL](https://dev.mysql.com/doc/c-api/8.0/en/mysql-affected-rows.html)            |
-| `stmt.insertId`     | 获取该`INSERT`/`UPDATE`/`REPLACE`语句执行后最后一个更改行的行号(关于行号的解释详见官方文档) | `Integer` | [SQLite](https://www.sqlite.org/c3ref/last_insert_rowid.html) [MySQL](https://dev.mysql.com/doc/c-api/8.0/en/mysql-stmt-insert-id.html) |
+| 属性                  | 含义                                                             | 类型        | 另见                                                                                                                                      |
+|---------------------|----------------------------------------------------------------|-----------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| `stmt.affectedRows` | 获取该预准备语句执行后影响的行数(仅对`INSERT` `UPDATE` `DELETE` `REPLACE` 等语句生效) | `Integer` | [SQLite](https://www.sqlite.org/c3ref/changes.html) [MySQL](https://dev.mysql.com/doc/c-api/8.0/en/mysql-affected-rows.html)            |
+| `stmt.insertId`     | 获取该`INSERT`/`UPDATE`/`REPLACE`语句执行后最后一个更改行的行号(关于行号的解释详见官方文档)   | `Integer` | [SQLite](https://www.sqlite.org/c3ref/last_insert_rowid.html) [MySQL](https://dev.mysql.com/doc/c-api/8.0/en/mysql-stmt-insert-id.html) |
 
 这些对象属性都是只读的，无法被修改，并且只能在语句执行之后获取到
 
@@ -456,7 +450,7 @@ function writeData() {
     stmt.clear(); // 清除已经绑定的值
   }
 }
-mc.regPlayerCmd("getcoin", "Get a coin!", (pl, args) {
+mc.regPlayerCmd("getcoin", "Get a coin!", (pl, args)=>{
   dat[pl.realName]++;
   modified[pl.realName]++;
 });

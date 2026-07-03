@@ -1,45 +1,65 @@
-#include "engine/EngineManager.h"
+#include "legacy/engine/EngineManager.h"
 
-#include "engine/EngineOwnData.h"
-#include "engine/GlobalShareData.h"
-#include "ll/api/utils/StringUtils.h"
+#include "legacy/engine/EngineOwnData.h"
+#include "legacy/engine/GlobalShareData.h"
 
-#if defined(LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS)
+#if defined(LSE_BACKEND_NODEJS)
 #include "legacy/main/NodeJsHelper.h"
 #endif
 
-#include <map>
 #include <mutex>
 #include <shared_mutex>
 
 using namespace script;
 
+namespace {
+
+void refreshEngineSnapshotLocked() {
+    auto snapshot = std::make_shared<std::vector<std::shared_ptr<ScriptEngine>>>(
+        globalShareData->globalEngineList.begin(),
+        globalShareData->globalEngineList.end()
+    );
+
+    std::unique_lock snapshotLock(globalShareData->engineSnapshotLock);
+    globalShareData->globalEngineSnapshot = std::move(snapshot);
+}
+
+std::shared_ptr<std::vector<std::shared_ptr<ScriptEngine>>> loadEngineSnapshot() {
+    std::shared_lock snapshotLock(globalShareData->engineSnapshotLock);
+    return globalShareData->globalEngineSnapshot;
+}
+
+} // namespace
+
 ///////////////////////////////// API /////////////////////////////////
 
-bool EngineManager::unregisterEngine(ScriptEngine* toDelete) {
-    std::unique_lock<std::shared_mutex> lock(globalShareData->engineListLock);
+bool EngineManager::unregisterEngine(std::shared_ptr<ScriptEngine> const& toDelete) {
+    std::lock_guard lock(globalShareData->engineListLock);
     for (auto engine = globalShareData->globalEngineList.begin(); engine != globalShareData->globalEngineList.end();
-         ++engine)
+         ++engine) {
         if (*engine == toDelete) {
             globalShareData->globalEngineList.erase(engine);
+            refreshEngineSnapshotLocked();
             return true;
         }
+    }
     return false;
 }
 
-bool EngineManager::registerEngine(ScriptEngine* engine) {
-    std::unique_lock<std::shared_mutex> lock(globalShareData->engineListLock);
+bool EngineManager::registerEngine(std::shared_ptr<ScriptEngine> const& engine) {
+    std::lock_guard lock(globalShareData->engineListLock);
     globalShareData->globalEngineList.push_back(engine);
+    refreshEngineSnapshotLocked();
     return true;
 }
 
-ScriptEngine* EngineManager::newEngine(std::string pluginName) {
-    ScriptEngine* engine = nullptr;
+std::shared_ptr<ScriptEngine> EngineManager::newEngine(std::string const& pluginName) {
+    std::shared_ptr<ScriptEngine> engine = nullptr;
 
-#if defined(LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS)
+#if defined(LSE_BACKEND_NODEJS)
     engine = NodeJsHelper::newEngine();
 #elif !defined(SCRIPTX_BACKEND_WEBASSEMBLY)
-    engine = new ScriptEngineImpl();
+    engine = std::shared_ptr<ScriptEngineImpl>(new ScriptEngineImpl, ScriptEngine::Deleter());
 #else
     engine = ScriptEngineImpl::instance();
 #endif
@@ -53,42 +73,69 @@ ScriptEngine* EngineManager::newEngine(std::string pluginName) {
 }
 
 bool EngineManager::isValid(ScriptEngine* engine, bool onlyCheckLocal) {
-    std::shared_lock<std::shared_mutex> lock(globalShareData->engineListLock);
-    for (auto i = globalShareData->globalEngineList.begin(); i != globalShareData->globalEngineList.end(); ++i)
-        if (*i == engine) {
+    auto snapshot = loadEngineSnapshot();
+    if (!snapshot) return false;
+
+    for (auto& i : *snapshot) {
+        if (i.get() == engine) {
             if (engine->isDestroying()) return false;
             if (onlyCheckLocal && getEngineType(engine) != LLSE_BACKEND_TYPE) return false;
-            else return true;
+            return true;
         }
+    }
     return false;
 }
 
-std::vector<ScriptEngine*> EngineManager::getLocalEngines() {
-    std::vector<ScriptEngine*>          res;
-    std::shared_lock<std::shared_mutex> lock(globalShareData->engineListLock);
-    for (auto& engine : globalShareData->globalEngineList) {
+bool EngineManager::isValid(std::shared_ptr<ScriptEngine> const& engine, bool onlyCheckLocal) {
+    return isValid(engine.get(), onlyCheckLocal);
+}
+
+std::shared_ptr<ScriptEngine> EngineManager::checkAndGet(ScriptEngine* engine, bool onlyCheckLocal) {
+    auto snapshot = loadEngineSnapshot();
+    if (!snapshot) return nullptr;
+
+    for (auto& i : *snapshot) {
+        if (i.get() == engine) {
+            if (engine->isDestroying()) return nullptr;
+            if (onlyCheckLocal && getEngineType(engine) != LLSE_BACKEND_TYPE) return nullptr;
+            return i;
+        }
+    }
+    return nullptr;
+}
+
+std::vector<std::shared_ptr<ScriptEngine>> EngineManager::getLocalEngines() {
+    std::vector<std::shared_ptr<ScriptEngine>> res;
+    auto                                       snapshot = loadEngineSnapshot();
+    if (!snapshot) return res;
+
+    for (auto& engine : *snapshot) {
         if (getEngineType(engine) == LLSE_BACKEND_TYPE) res.push_back(engine);
     }
     return res;
 }
 
-std::vector<ScriptEngine*> EngineManager::getGlobalEngines() {
-    std::vector<ScriptEngine*>          res;
-    std::shared_lock<std::shared_mutex> lock(globalShareData->engineListLock);
-    for (auto& engine : globalShareData->globalEngineList) {
-        res.push_back(engine);
-    }
-    return res;
+std::vector<std::shared_ptr<ScriptEngine>> EngineManager::getGlobalEngines() {
+    auto snapshot = loadEngineSnapshot();
+    if (!snapshot) return {};
+
+    return *snapshot;
 }
 
-ScriptEngine* EngineManager::getEngine(std::string name, bool onlyLocalEngine) {
-    std::shared_lock<std::shared_mutex> lock(globalShareData->engineListLock);
-    for (auto& engine : globalShareData->globalEngineList) {
+std::shared_ptr<ScriptEngine> EngineManager::getEngine(std::string const& name, bool onlyLocalEngine) {
+    auto snapshot = loadEngineSnapshot();
+    if (!snapshot) return nullptr;
+
+    for (auto& engine : *snapshot) {
         if (onlyLocalEngine && getEngineType(engine) != LLSE_BACKEND_TYPE) continue;
         auto ownerData = getEngineData(engine);
         if (ownerData->pluginName == name) return engine;
     }
     return nullptr;
+}
+
+std::string EngineManager::getEngineType(std::shared_ptr<ScriptEngine> const& engine) {
+    return getEngineData(engine)->engineType;
 }
 
 std::string EngineManager::getEngineType(ScriptEngine* engine) { return getEngineData(engine)->engineType; }

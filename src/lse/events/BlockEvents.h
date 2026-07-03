@@ -8,9 +8,11 @@ void FarmDecayEvent();
 void PistonPushEvent();
 void ExplodeEvent();
 void RespawnAnchorExplodeEvent();
+void PortalSpawnEvent();
 void BlockExplodedEvent();
 void RedstoneUpdateEvent();
+void DispenseItemEvent();
 void LiquidFlowEvent();
 void CommandBlockExecuteEvent();
 void HopperEvent(bool pullIn);
-}
+} // namespace lse::events::block

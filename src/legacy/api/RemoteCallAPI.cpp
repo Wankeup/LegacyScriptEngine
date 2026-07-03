@@ -1,29 +1,28 @@
-#include "api/APIHelp.h"
-#include "api/BaseAPI.h"
-#include "api/BlockAPI.h"
-#include "api/BlockEntityAPI.h"
-#include "api/ContainerAPI.h"
-#include "api/EntityAPI.h"
-#include "api/ItemAPI.h"
-#include "api/LlAPI.h"
-#include "api/NbtAPI.h"
-#include "api/PlayerAPI.h"
-#include "engine/GlobalShareData.h"
-#include "engine/MessageSystem.h"
+#include "legacy/api/APIHelp.h"
+#include "legacy/api/BaseAPI.h"
+#include "legacy/api/BlockAPI.h"
+#include "legacy/api/BlockEntityAPI.h"
+#include "legacy/api/ContainerAPI.h"
+#include "legacy/api/EntityAPI.h"
+#include "legacy/api/ItemAPI.h"
+#include "legacy/api/LlAPI.h"
+#include "legacy/api/NbtAPI.h"
+#include "legacy/api/PlayerAPI.h"
+#include "legacy/engine/EngineManager.h"
+#include "legacy/engine/GlobalShareData.h"
+#include "legacy/engine/MessageSystem.h"
 #include "ll/api/service/GamingStatus.h"
 #include "ll/api/service/ServerInfo.h"
 
 #include <RemoteCallAPI.h>
-#include <map>
-#include <process.h>
 #include <string>
 
-const std::string DEFAULT_REMOTE_CALL_NAME_SPACE = "LLSEGlobal";
+std::string const DEFAULT_REMOTE_CALL_NAME_SPACE = "LLSEGlobal";
 
 //////////////////// Remote Call ////////////////////
 
-RemoteCall::ValueType pack(Local<Value> value);
-RemoteCall::ValueType pack(Local<Object> value) {
+RemoteCall::ValueType pack(Local<Value> const& value);
+RemoteCall::ValueType pack(Local<Object> const& value) {
     // Player*, Actor*, ItemStack*, Block*, BlockActor*, Container*, Vec3, BlockPos, CompoundTag*
     if (IsInstanceOf<PlayerClass>(value)) return PlayerClass::extract(value);
     if (IsInstanceOf<EntityClass>(value)) return EntityClass::extract(value);
@@ -47,7 +46,7 @@ RemoteCall::ValueType pack(Local<Object> value) {
     for (auto& k : value.getKeyNames()) result.emplace(k, pack(value.get(k)));
     return std::move(result);
 }
-RemoteCall::ValueType pack(Local<Array> value) {
+RemoteCall::ValueType pack(Local<Array> const& value) {
     std::vector<RemoteCall::ValueType> result;
     for (size_t index = 0ULL, mEnd = value.size(); index < mEnd; ++index) {
         result.push_back(pack(value.get(index)));
@@ -55,53 +54,41 @@ RemoteCall::ValueType pack(Local<Array> value) {
     return std::move(result);
 }
 
-RemoteCall::ValueType pack(Local<Value> value) {
+RemoteCall::ValueType pack(Local<Value> const& value) {
     switch (value.getKind()) {
-    case script::ValueKind::kNull:
+    case ValueKind::kNull:
         return nullptr;
-        break;
-    case script::ValueKind::kObject:
+    case ValueKind::kObject:
         return pack(value.asObject());
-        break;
-    case script::ValueKind::kString:
+    case ValueKind::kString:
         return value.asString().toString();
-        break;
-    case script::ValueKind::kNumber: {
+    case ValueKind::kNumber: {
         auto num = value.asNumber();
         return RemoteCall::NumberType(num.toInt64(), num.toDouble());
-        break;
     }
-    case script::ValueKind::kBoolean:
+    case ValueKind::kBoolean:
         return value.asBoolean().value();
-        break;
-    case script::ValueKind::kFunction:
-        throw std::exception(fmt::format(__FUNCTION__ " - Unsupported Type: kFunction").c_str());
-        break;
-    case script::ValueKind::kArray:
+    case ValueKind::kFunction:
+        throw Exception(fmt::format(__FUNCTION__ " - Unsupported Type: kFunction").c_str());
+    case ValueKind::kArray:
         return pack(value.asArray());
-        break;
-    case script::ValueKind::kByteBuffer:
-        throw std::exception(fmt::format(__FUNCTION__ " - Unsupported Type: kByteBuffer").c_str());
-        return value.asByteBuffer().describeUtf8();
-        break;
-    case script::ValueKind::kUnsupported:
-        throw std::exception(fmt::format(__FUNCTION__ " - Unsupported Type: kUnsupported").c_str());
-        break;
+    case ValueKind::kByteBuffer:
+        throw Exception(fmt::format(__FUNCTION__ " - Unsupported Type: kByteBuffer").c_str());
+    case ValueKind::kUnsupported:
+        throw Exception(fmt::format(__FUNCTION__ " - Unsupported Type: kUnsupported").c_str());
     default:
-        throw std::exception(fmt::format(__FUNCTION__ " - Unsupported Type: Unknown").c_str());
-        break;
+        throw Exception(fmt::format(__FUNCTION__ " - Unsupported Type: Unknown").c_str());
     }
-    return RemoteCall::ValueType();
 }
 
 // Player*, Actor*, ItemStack*, Block*, BlockActor*, Container*, Vec3, BlockPos, CompoundTag*
 Local<Value> _extractValue(bool v) { return Boolean::newBoolean(v); };
-Local<Value> _extractValue(std::string v) { return String::newString(v); };
-Local<Value> _extractValue(std::nullptr_t) { return Local<Value>(); };
-Local<Value> _extractValue(std::string*) { return Local<Value>(); };
-Local<Value> _extractValue(Player* v) { return PlayerClass::newPlayer(v); };
-Local<Value> _extractValue(Actor* v) { return EntityClass::newEntity(v); };
-Local<Value> _extractValue(Block* v) { return BlockClass::newBlock(*v, BlockPos::ZERO(), -1); };
+Local<Value> _extractValue(std::string const& v) { return String::newString(v); };
+Local<Value> _extractValue(std::nullptr_t) { return {}; };
+Local<Value> _extractValue(std::string*) { return {}; };
+Local<Value> _extractValue(Player const* v) { return PlayerClass::newPlayer(v); };
+Local<Value> _extractValue(Actor const* v) { return EntityClass::newEntity(v); };
+Local<Value> _extractValue(Block const* v) { return BlockClass::newBlock(*v, BlockPos::ZERO(), -1); };
 Local<Value> _extractValue(BlockActor* const& v) { return BlockEntityClass::newBlockEntity(v, -1); };
 Local<Value> _extractValue(Container* v) { return ContainerClass::newContainer(v); };
 Local<Value> _extractValue(RemoteCall::WorldPosType v) { return FloatPos::newPos(v.pos, v.dimId); };
@@ -111,12 +98,12 @@ Local<Value> _extractValue(RemoteCall::BlockType v) {
 };
 Local<Value> _extractValue(RemoteCall::NumberType v) { return Number::newNumber(v.get<double>()); };
 Local<Value> _extractValue(RemoteCall::ItemType&& v) {
-    if (v.own) return ItemClass::newItem(v.tryGetUniquePtr().release());
-    else return ItemClass::newItem(const_cast<ItemStack*>(v.ptr));
+    if (v.own) return ItemClass::newItem(v.tryGetUniquePtr());
+    return ItemClass::newItem(const_cast<ItemStack*>(v.ptr));
 };
 Local<Value> _extractValue(RemoteCall::NbtType&& v) {
     if (v.own) return NbtCompoundClass::pack(v.tryGetUniquePtr());
-    else return NbtCompoundClass::pack(const_cast<CompoundTag*>(v.ptr));
+    return NbtCompoundClass::pack(const_cast<CompoundTag*>(v.ptr));
 };
 
 Local<Value> extract(RemoteCall::ValueType&& val);
@@ -141,8 +128,7 @@ Local<Value> extractValue(RemoteCall::Value&& val) {
         Extra(11);
         Extra(12);
     default:
-        throw std::exception("Unsupported Type!");
-        break;
+        throw Exception("Unsupported Type!");
     }
 };
 Local<Value> extractValue(std::vector<RemoteCall::ValueType>&& val) {
@@ -168,29 +154,22 @@ Local<Value> extract(RemoteCall::ValueType&& val) {
     case 2:
         return extractValue(std::move(std::get<2>(val.value)));
     default:
-        throw std::exception("Unsupported Type");
-        return Local<Value>();
-        break;
+        throw Exception("Unsupported Type");
     }
 }
 
-Local<Value> MakeRemoteCall(const string& nameSpace, const string& funcName, const Arguments& args) {
+Local<Value> MakeRemoteCall(string const& nameSpace, string const& funcName, Arguments const& args) {
     auto& func = RemoteCall::importFunc(nameSpace, funcName);
     if (!func) {
-        lse::LegacyScriptEngine::getInstance().getSelf().getLogger().error(
-            "Fail to import! Function [{}::{}] has not been exported!",
-            nameSpace,
-            funcName
-        );
-        lse::LegacyScriptEngine::getInstance().getSelf().getLogger().error(
-            "In plugin <{}>",
-            getEngineOwnData()->pluginName
-        );
-        return Local<Value>();
+        lse::LegacyScriptEngine::getLogger()
+            .error("Fail to import! Function [{}::{}] has not been exported!", nameSpace, funcName);
+        lse::LegacyScriptEngine::getLogger().error("In plugin <{}>", getEngineOwnData()->pluginName);
+        return {};
     }
 
     std::vector<RemoteCall::ValueType> params;
-    for (int i = 0; i < args.size(); ++i) {
+    params.reserve(args.size());
+    for (size_t i = 0; i < args.size(); ++i) {
         params.emplace_back(pack(args[i]));
     }
     return extract(func(std::move(params)));
@@ -198,9 +177,9 @@ Local<Value> MakeRemoteCall(const string& nameSpace, const string& funcName, con
 
 bool LLSEExportFunc(
     ScriptEngine*          engine,
-    const Local<Function>& func,
-    const string&          nameSpace,
-    const string&          funcName
+    Local<Function> const& func,
+    string const&          nameSpace,
+    string const&          funcName
 ) {
     // Putting script::Global value into lambda capture list may cause crash
     // script::Global<Function> callback = script::Global<Function>(func);
@@ -215,17 +194,17 @@ bool LLSEExportFunc(
         try {
             auto iter = getEngineData(engine)->exportFuncs.find(identifier);
             if (iter == getEngineData(engine)->exportFuncs.end()) {
-                lse::LegacyScriptEngine::getInstance().getSelf().getLogger().debug("");
                 return "";
             }
-            auto                              scriptCallback = iter->second.callback.get();
-            std::vector<script::Local<Value>> scriptParams;
+            auto                      scriptCallback = iter->second.callback.get();
+            std::vector<Local<Value>> scriptParams;
+            scriptParams.reserve(params.size());
             for (auto& param : params) {
                 scriptParams.emplace_back(extract(std::move(param)));
             }
             return pack(scriptCallback.call({}, scriptParams));
         }
-        CATCH_WITHOUT_RETURN("Fail in Remote Call");
+        CATCH
         return "";
     };
     if (RemoteCall::exportFunc(nameSpace, funcName, std::move(cb))) {
@@ -238,11 +217,11 @@ bool LLSEExportFunc(
     return false;
 }
 
-bool LLSERemoveAllExportedFuncs(ScriptEngine* engine) {
+bool LLSERemoveAllExportedFuncs(std::shared_ptr<ScriptEngine> const& engine) {
     // enter scope to prevent crash in script::Global::~Global()
-    EngineScope                                      enter(engine);
+    EngineScope                                      enter(engine.get());
     std::vector<std::pair<std::string, std::string>> funcs;
-    for (auto& [key, data] : getEngineData(engine)->exportFuncs) {
+    for (auto& data : getEngineData(engine)->exportFuncs | std::views::values) {
         funcs.emplace_back(data.nameSpace, data.funcName);
     }
     int count = RemoteCall::removeFuncs(funcs);
@@ -252,7 +231,7 @@ bool LLSERemoveAllExportedFuncs(ScriptEngine* engine) {
 
 //////////////////// APIs ////////////////////
 
-Local<Value> LlClass::exportFunc(const Arguments& args) {
+Local<Value> LlClass::exportFunc(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 2);
     CHECK_ARG_TYPE(args[0], ValueKind::kFunction);
     CHECK_ARG_TYPE(args[1], ValueKind::kString);
@@ -272,10 +251,10 @@ Local<Value> LlClass::exportFunc(const Arguments& args) {
             LLSEExportFunc(EngineScope::currentEngine(), args[0].asFunction(), nameSpace, funcName)
         );
     }
-    CATCH("Fail in LLSEExport!");
+    CATCH_AND_THROW
 }
 
-Local<Value> LlClass::importFunc(const Arguments& args) {
+Local<Value> LlClass::importFunc(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
 
@@ -292,14 +271,14 @@ Local<Value> LlClass::importFunc(const Arguments& args) {
         }
 
         // 远程调用
-        return Function::newFunction([nameSpace{nameSpace}, funcName{funcName}](const Arguments& args) -> Local<Value> {
+        return Function::newFunction([nameSpace{nameSpace}, funcName{funcName}](Arguments const& args) -> Local<Value> {
             return MakeRemoteCall(nameSpace, funcName, args);
         });
     }
-    CATCH("Fail in LLSEImport!")
+    CATCH_AND_THROW
 }
 
-Local<Value> LlClass::hasFuncExported(const Arguments& args) {
+Local<Value> LlClass::hasFuncExported(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
 
@@ -318,5 +297,5 @@ Local<Value> LlClass::hasFuncExported(const Arguments& args) {
         // 远程调用
         return Boolean::newBoolean(RemoteCall::hasFunc(nameSpace, funcName));
     }
-    CATCH("Fail in LLSEHasExported!")
+    CATCH_AND_THROW
 }

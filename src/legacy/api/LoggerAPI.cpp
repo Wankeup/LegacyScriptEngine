@@ -1,20 +1,18 @@
-#include "api/LoggerAPI.h"
+#include "legacy/api/LoggerAPI.h"
 
-#include "api/APIHelp.h"
-#include "api/PlayerAPI.h"
-#include "engine/EngineOwnData.h"
+#include "legacy/api/APIHelp.h"
+#include "legacy/api/PlayerAPI.h"
+#include "legacy/engine/EngineOwnData.h"
+#include "legacy/utils/Utils.h"
 #include "ll/api/data/IndirectValue.h"
+#include "ll/api/io/DefaultSink.h"
 #include "ll/api/io/FileSink.h"
 #include "ll/api/io/Logger.h"
 #include "ll/api/io/PatternFormatter.h"
 #include "lse/api/PlayerSink.h"
 #include "mc/world/actor/player/Player.h"
-#include "utils/Utils.h"
 
-#include <fstream>
-#include <iostream>
 #include <string>
-#include <string_view>
 
 using ll::io::LogLevel;
 
@@ -39,7 +37,7 @@ ClassDefine<void> LoggerClassBuilder = defineClass("logger")
 ////////////////// Helper //////////////////
 std::string inline GetTimeStrHelper() { return Raw_GetDateTimeStr(); }
 
-std::string& StrReplace(std::string& str, const std::string& to_replaced, const std::string& new_str) {
+std::string& StrReplace(std::string& str, std::string const& to_replaced, std::string const& new_str) {
     for (std::string::size_type pos(0); pos != std::string::npos; pos += new_str.length()) {
         pos = str.find(to_replaced, pos);
         if (pos != std::string::npos) str.replace(pos, to_replaced.length(), new_str);
@@ -49,13 +47,13 @@ std::string& StrReplace(std::string& str, const std::string& to_replaced, const 
 }
 ////////////////// Helper //////////////////
 
-void inline LogDataHelper(LogLevel level, const Arguments& args) {
+void inline LogDataHelper(LogLevel level, Arguments const& args) {
     std::string res;
     for (int i = 0; i < args.size(); ++i) res += ValueToString(args[i]);
     getEngineOwnData()->logger->log(level, res);
 }
 
-Local<Value> LoggerClass::log(const Arguments& args) {
+Local<Value> LoggerClass::log(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
 
     try {
@@ -63,10 +61,10 @@ Local<Value> LoggerClass::log(const Arguments& args) {
         LogDataHelper(LogLevel::Info, args);
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in LoggerLog!")
+    CATCH_AND_THROW
 }
 
-Local<Value> LoggerClass::debug(const Arguments& args) {
+Local<Value> LoggerClass::debug(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
 
     try {
@@ -74,10 +72,10 @@ Local<Value> LoggerClass::debug(const Arguments& args) {
         LogDataHelper(LogLevel::Debug, args);
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in LoggerDebug!")
+    CATCH_AND_THROW
 }
 
-Local<Value> LoggerClass::info(const Arguments& args) {
+Local<Value> LoggerClass::info(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
 
     try {
@@ -85,10 +83,10 @@ Local<Value> LoggerClass::info(const Arguments& args) {
         LogDataHelper(LogLevel::Info, args);
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in LoggerInfo!")
+    CATCH_AND_THROW
 }
 
-Local<Value> LoggerClass::warn(const Arguments& args) {
+Local<Value> LoggerClass::warn(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
 
     try {
@@ -96,10 +94,10 @@ Local<Value> LoggerClass::warn(const Arguments& args) {
         LogDataHelper(LogLevel::Warn, args);
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in LoggerWarn!")
+    CATCH_AND_THROW
 }
 
-Local<Value> LoggerClass::error(const Arguments& args) {
+Local<Value> LoggerClass::error(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
 
     try {
@@ -107,10 +105,10 @@ Local<Value> LoggerClass::error(const Arguments& args) {
         LogDataHelper(LogLevel::Error, args);
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in LoggerError!")
+    CATCH_AND_THROW
 }
 
-Local<Value> LoggerClass::fatal(const Arguments& args) {
+Local<Value> LoggerClass::fatal(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
 
     try {
@@ -118,11 +116,11 @@ Local<Value> LoggerClass::fatal(const Arguments& args) {
         LogDataHelper(LogLevel::Fatal, args);
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in LoggerFatal!")
+    CATCH_AND_THROW
 }
 
 // Deprecated
-Local<Value> LoggerClass::setTitle(const Arguments& args) {
+Local<Value> LoggerClass::setTitle(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     CHECK_ARG_TYPE(args[0], ValueKind::kString)
 
@@ -132,7 +130,7 @@ Local<Value> LoggerClass::setTitle(const Arguments& args) {
 
 ///////////////// Helper /////////////////
 
-Local<Value> LoggerClass::setConsole(const Arguments& args) {
+Local<Value> LoggerClass::setConsole(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     CHECK_ARG_TYPE(args[0], ValueKind::kBoolean)
     if (args.size() >= 2) CHECK_ARG_TYPE(args[1], ValueKind::kNumber)
@@ -148,10 +146,10 @@ Local<Value> LoggerClass::setConsole(const Arguments& args) {
         }
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in LoggerSetConsole!")
+    CATCH_AND_THROW
 }
 
-Local<Value> LoggerClass::setFile(const Arguments& args) {
+Local<Value> LoggerClass::setFile(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     CHECK_ARG_TYPE(args[0], ValueKind::kString)
     if (args.size() >= 2) CHECK_ARG_TYPE(args[1], ValueKind::kNumber)
@@ -166,12 +164,23 @@ Local<Value> LoggerClass::setFile(const Arguments& args) {
         if (args.size() >= 2) {
             sink->setFlushLevel(static_cast<LogLevel>(args[1].asNumber().toInt32() - 1));
         }
-        return Boolean::newBoolean(getEngineOwnData()->logger->addSink(sink));
+        bool hasFileSink = false;
+        for (auto& sk : getEngineOwnData()->logger->sinks()) {
+            if (typeid(sk) == typeid(ll::io::FileSink)) {
+                hasFileSink = true;
+            }
+        }
+        auto logger = getEngineOwnData()->logger;
+        if (hasFileSink) {
+            logger->clearSink();
+            logger->addSink(std::make_shared<ll::io::DefaultSink>());
+        }
+        return Boolean::newBoolean(logger->addSink(sink));
     }
-    CATCH("Fail in LoggerSetFile!")
+    CATCH_AND_THROW
 }
 
-Local<Value> LoggerClass::setPlayer(const Arguments& args) {
+Local<Value> LoggerClass::setPlayer(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     try {
         Player* player = PlayerClass::extract(args[0]);
@@ -184,10 +193,10 @@ Local<Value> LoggerClass::setPlayer(const Arguments& args) {
         }
         return Boolean::newBoolean(getEngineOwnData()->logger->addSink(sink));
     }
-    CATCH("Fail in LoggerSetPlayer!")
+    CATCH_AND_THROW
 }
 
-Local<Value> LoggerClass::setLogLevel(const Arguments& args) {
+Local<Value> LoggerClass::setLogLevel(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1)
     CHECK_ARG_TYPE(args[0], ValueKind::kNumber)
 
@@ -196,5 +205,5 @@ Local<Value> LoggerClass::setLogLevel(const Arguments& args) {
         conf->logger->setLevel(static_cast<LogLevel>(args[0].asNumber().toInt32() - 1));
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in SetLogLevel!")
+    CATCH_AND_THROW
 }

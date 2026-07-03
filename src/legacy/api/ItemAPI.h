@@ -1,5 +1,5 @@
 #pragma once
-#include "api/APIHelp.h"
+#include "legacy/api/APIHelp.h"
 
 #include <memory>
 #include <string>
@@ -10,67 +10,69 @@ class ItemStack;
 
 class ItemClass : public ScriptClass {
 private:
-    std::variant<ItemStack*, std::unique_ptr<ItemStack>> item; // BDS manages ItemStack*
+    // ItemStack* is managed by BDS
+    std::variant<std::monostate, std::unique_ptr<ItemStack>, ItemStack*> item;
 
     // Pre data
     std::string name, type;
-    int         id, count, aux;
+    int         id, maxCount, count, aux;
 
 public:
-    explicit ItemClass(ItemStack* itemStack, bool isManagedByBDS = true);
+    explicit ItemClass(std::variant<std::monostate, std::unique_ptr<ItemStack>, ItemStack*> itemStack);
     void preloadData();
 
-    ItemStack* get() {
-        if (std::holds_alternative<std::unique_ptr<ItemStack>>(item)) {
+    ItemStack* get() const {
+        if (std::holds_alternative<std::monostate>(item)) return nullptr;
+        if (std::holds_alternative<std::unique_ptr<ItemStack>>(item))
             return std::get<std::unique_ptr<ItemStack>>(item).get();
-        } else {
-            return std::get<ItemStack*>(item);
-        }
+        return std::get<ItemStack*>(item);
     }
 
-    static Local<Object> newItem(ItemStack* itemStack, bool isManagedByBDS = true);
-    static ItemStack*    extract(Local<Value> v);
+    static Local<Object> newItem(ItemStack* itemStack);
+    static Local<Object> newItem(std::unique_ptr<ItemStack> itemStack);
+    static ItemStack*    extract(Local<Value> const& v);
 
-    Local<Value> getName();
-    Local<Value> getType();
-    Local<Value> getId();
-    Local<Value> getCount();
-    Local<Value> getAux();
-    Local<Value> getDamage();
-    Local<Value> getAttackDamage();
-    Local<Value> getMaxDamage();
-    Local<Value> getMaxStackSize();
-    Local<Value> getLore();
+    Local<Value> getName() const;
+    Local<Value> getType() const;
+    Local<Value> getId() const;
+    Local<Value> getCount() const;
+    Local<Value> getMaxCount() const;
+    Local<Value> getAux() const;
+    Local<Value> getDamage() const;
+    Local<Value> getAttackDamage() const;
+    Local<Value> getMaxDamage() const;
+    Local<Value> getMaxStackSize() const;
+    Local<Value> getLore() const;
 
-    Local<Value> isArmorItem();
-    Local<Value> isBlock();
-    Local<Value> isDamageableItem();
-    Local<Value> isDamaged();
-    Local<Value> isEnchanted();
-    Local<Value> isEnchantingBook();
-    Local<Value> isFireResistant();
-    Local<Value> isFullStack();
-    Local<Value> isGlint();
-    Local<Value> isHorseArmorItem();
-    Local<Value> isLiquidClipItem();
-    Local<Value> isMusicDiscItem();
-    Local<Value> isOffhandItem();
-    Local<Value> isPotionItem();
-    Local<Value> isStackable();
-    Local<Value> isWearableItem();
+    Local<Value> isArmorItem() const;
+    Local<Value> isBlock() const;
+    Local<Value> isDamageableItem() const;
+    Local<Value> isDamaged() const;
+    Local<Value> isEnchanted() const;
+    Local<Value> isEnchantingBook() const;
+    Local<Value> isFireResistant() const;
+    Local<Value> isFullStack() const;
+    Local<Value> isGlint() const;
+    Local<Value> isHorseArmorItem() const;
+    Local<Value> isLiquidClipItem() const;
+    Local<Value> isMusicDiscItem() const;
+    Local<Value> isOffhandItem() const;
+    Local<Value> isPotionItem() const;
+    Local<Value> isStackable() const;
+    Local<Value> isWearableItem() const;
 
-    Local<Value> set(const Arguments& args);
-    Local<Value> clone(const Arguments& args);
-    Local<Value> isNull(const Arguments& args);
-    Local<Value> setNull(const Arguments& args);
-    Local<Value> setAux(const Arguments& args);
-    Local<Value> setLore(const Arguments& args);
-    Local<Value> setDisplayName(const Arguments& args);
-    Local<Value> setDamage(const Arguments& args);
-    Local<Value> getNbt(const Arguments& args);
-    Local<Value> setNbt(const Arguments& args);
+    Local<Value> set(Arguments const& args) const;
+    Local<Value> clone(Arguments const& args) const;
+    Local<Value> isNull(Arguments const& args) const;
+    Local<Value> setNull(Arguments const& args) const;
+    Local<Value> setAux(Arguments const& args) const;
+    Local<Value> setLore(Arguments const& args) const;
+    Local<Value> setDisplayName(Arguments const& args) const;
+    Local<Value> setDamage(Arguments const& args) const;
+    Local<Value> getNbt(Arguments const& args) const;
+    Local<Value> setNbt(Arguments const& args);
 
-    Local<Value> match(const Arguments& args);
+    Local<Value> match(Arguments const& args) const;
 };
 
 extern ClassDefine<ItemClass> ItemClassBuilder;

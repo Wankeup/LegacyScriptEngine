@@ -15,7 +15,7 @@
 | `Python`     | 使用 CPython 引擎运行插件，支持 pip 包管理      |
 
 !!! tip
-    如果需要使用 C++、Go、Rust 等原生语言编写插件，请移步 [主页](https://lamina.liteldev.com) 查看其他语言文档
+    如果需要使用 C++、Go、Rust 等原生语言编写插件，请移步 [主页](https://lamina.levimc.org) 查看其他语言文档
 
 ## JavaScript 语言支持说明
 
@@ -23,6 +23,60 @@
 - QuickJS 当前版本支持到 ES2020 语言特性，同时原生支持 ESModule 模块机制，可以方便开发者进行项目管理
 - 暂不支持包管理机制，如果需要请使用 Node.js 进行插件开发，使用 npm 包管理
 - 在BDS控制台中使用`jsdebug`命令进入和退出 QuickJs 交互式命令行环境。此功能便于编写插件时进行一些简单的测试
+
+### 关于 QuickJs ESModule 的路径解析行为
+
+LegacyScriptEngine 使用的 ScriptX 来自上游 Tencent/ScriptX 项目的 fork，
+并在其基础上增加了一些功能（例如 Python 后端支持等）。
+
+在 QuickJs 后端中，ScriptX 默认使用 **quickjs-libc.h** 中提供的 `module loader`。
+该 loader 会导致 QuickJS ESModule 在解析入口模块时的行为与标准 ESModule 不完全一致。
+
+具体表现为:
+该 loader 在加载 **入口模块** 时，会将模块的 base path 设为 **当前工作目录 (CWD),即服务器程序所在目录**，而不是脚本文件所在目录。
+因此入口文件中的相对 `import` 路径解析行为与标准 ESModule 不完全一致。
+
+假设脚本插件的结构为:
+
+```
+c:/bds
+    bedrock_server_mod.exe
+    plugins/
+        your_plugin/
+            manifest.json
+            index.js
+            command/
+                command.js
+```
+
+**index.js** 入口文件:
+```js
+import { initCommand } from "./command/command.js"
+
+initCommand();
+```
+
+此时 QuickJS 会将入口模块的 `import.meta.url` 解析为 `file:///c:/bds` 而不是 `file:///c:/bds/plugins/your_plugin`
+
+因此 `./command/command.js` 会解析失败，导致插件加载失败。
+
+例如 QuickJS 可能会抛出类似如下的错误（原始日志）:
+```
+19:26:12.343 ERROR [LeviLamina] Failed to load plugin your_plugin: Unexpected token '{'      
+19:26:12.343 ERROR [LeviLamina]     at ./plugins/your_plugin\index.js:1:1
+```
+
+解决方法是使用**相对于工作目录的路径**：
+
+```js
+import { initCommand } from "./plugins/your_plugin/command/command.js"
+```
+
+即可正常加载模块。
+
+!!! tip
+    该问题**仅影响 manifest.json 指定的入口模块**。
+    入口模块加载完成后，其它模块之间的 `import` 行为均符合标准 ESModule 规则。
 
 ## Lua 语言支持说明
 
@@ -48,7 +102,7 @@
 - 在插件编写完成之后，请将 `package.json` 以及所有插件源码打包为一个zip压缩包，并**将文件名后缀修改为 .llplugin**
 - `node_modules` 目录请勿打包在压缩包之中
 - 将 **.llplugin** 文件作为插件分发，安装插件时直接将此文件放置到 plugins 目录即可
-- 在开服时，脚本引擎会自动识别 **.llplugin** 文件，将其解压到`plugins/nodejs/插件名`目录，并在目录中自动执行 `npm install`
+- 在开服时，脚本引擎会自动识别 **.llplugin** 文件，将其解压到`plugins/nodejs/插件名`目录，并在目录中自动执行 `npm install --omit=dev`
   安装依赖包，整个过程无需人工干预
 
 ## Python 语言支持说明

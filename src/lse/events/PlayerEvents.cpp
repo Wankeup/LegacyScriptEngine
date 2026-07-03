@@ -7,25 +7,25 @@
 #include "ll/api/memory/Hook.h"
 #include "ll/api/memory/Memory.h"
 #include "ll/api/service/Bedrock.h"
-#include "mc/common/ActorUniqueID.h"
-#include "mc/deps/core/string/HashedString.h"
+#include "lse/api/Thread.h"
 #include "mc/deps/ecs/WeakEntityRef.h"
+#include "mc/network/ServerPlayerBlockUseHandler.h"
 #include "mc/server/ServerPlayer.h"
 #include "mc/server/module/VanillaServerGameplayEventListener.h"
 #include "mc/world/ContainerID.h"
-#include "mc/world/actor/ActorDamageSource.h"
+#include "mc/world/actor/ActorHurtResult.h"
 #include "mc/world/actor/ActorType.h"
 #include "mc/world/actor/FishingHook.h"
 #include "mc/world/actor/item/ItemActor.h"
+#include "mc/world/actor/player/Inventory.h"
 #include "mc/world/actor/player/Player.h"
-#include "mc/world/actor/player/PlayerItemInUse.h"
-#include "mc/world/containers/models/LevelContainerModel.h"
-#include "mc/world/effect/EffectDuration.h"
+#include "mc/world/actor/player/PlayerInventory.h"
+#include "mc/world/containers/managers/models/ContainerManagerModel.h"
 #include "mc/world/effect/MobEffectInstance.h"
-#include "mc/world/events/BlockEventCoordinator.h"
 #include "mc/world/events/EventResult.h"
 #include "mc/world/events/PlayerOpenContainerEvent.h"
 #include "mc/world/gamemode/InteractionResult.h"
+#include "mc/world/inventory/network/ItemStackNetManagerBase.h"
 #include "mc/world/inventory/transaction/ComplexInventoryTransaction.h"
 #include "mc/world/inventory/transaction/InventoryAction.h"
 #include "mc/world/inventory/transaction/InventorySource.h"
@@ -33,47 +33,20 @@
 #include "mc/world/item/BucketItem.h"
 #include "mc/world/item/ItemInstance.h"
 #include "mc/world/item/ItemStack.h"
-#include "mc/world/level/BedrockSpawner.h"
+#include "mc/world/item/PotionItem.h"
 #include "mc/world/level/BlockSource.h"
 #include "mc/world/level/ChangeDimensionRequest.h"
-#include "mc/world/level/Explosion.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/block/BasePressurePlateBlock.h"
 #include "mc/world/level/block/Block.h"
 #include "mc/world/level/block/ItemFrameBlock.h"
 #include "mc/world/level/block/RespawnAnchorBlock.h"
-#include "mc/world/level/block/actor/BarrelBlockActor.h"
-#include "mc/world/level/block/actor/ChestBlockActor.h"
 #include "mc/world/level/block/actor/PistonBlockActor.h"
+#include "mc/world/level/block/block_events/BlockPlayerInteractEvent.h"
 #include "mc/world/level/dimension/Dimension.h"
-#include "mc/world/level/material/Material.h"
-#include "mc/world/phys/AABB.h"
-#include "mc/world/phys/HitResult.h"
 
 namespace lse::events::player {
-LL_TYPE_INSTANCE_HOOK(
-    StartDestroyHook,
-    HookPriority::Normal,
-    BlockEventCoordinator,
-    &BlockEventCoordinator::sendBlockDestructionStarted,
-    void,
-    ::Player&         player,
-    const ::BlockPos& blockPos,
-    const ::Block&    hitBlock,
-    uchar             face
-) {
-    IF_LISTENED(EVENT_TYPES::onStartDestroyBlock) {
-        if (!CallEvent(
-                EVENT_TYPES::onStartDestroyBlock,
-                PlayerClass::newPlayer(&player),
-                BlockClass::newBlock(hitBlock, blockPos, player.getDimensionId())
-            )) {
-            return;
-        }
-    }
-    IF_LISTENED_END(EVENT_TYPES::onStartDestroyBlock)
-    origin(player, blockPos, hitBlock, face);
-}
+using api::thread::checkClientIsServerThread;
 
 LL_TYPE_INSTANCE_HOOK(
     DropItemHook1,
@@ -85,12 +58,14 @@ LL_TYPE_INSTANCE_HOOK(
     bool             randomly
 ) {
     IF_LISTENED(EVENT_TYPES::onDropItem) {
-        if (!CallEvent(
-                EVENT_TYPES::onDropItem,
-                PlayerClass::newPlayer(this),
-                ItemClass::newItem(&const_cast<ItemStack&>(item))
-            )) {
-            return false;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onDropItem,
+                    PlayerClass::newPlayer(this),
+                    ItemClass::newItem(&const_cast<ItemStack&>(item))
+                )) {
+                return false;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onDropItem);
@@ -106,8 +81,9 @@ LL_TYPE_INSTANCE_HOOK(
     Player& player,
     bool    isSenderAuthority
 ) {
-    if (mType == ComplexInventoryTransaction::Type::NormalTransaction) {
-        IF_LISTENED(EVENT_TYPES::onDropItem) {
+
+    IF_LISTENED(EVENT_TYPES::onDropItem) {
+        if (checkClientIsServerThread() && mType == ComplexInventoryTransaction::Type::NormalTransaction) {
             InventorySource source{
                 InventorySourceType::ContainerInventory,
                 ContainerID::Inventory,
@@ -118,14 +94,16 @@ LL_TYPE_INSTANCE_HOOK(
                 if (!CallEvent(
                         EVENT_TYPES::onDropItem,
                         PlayerClass::newPlayer(&player),
-                        ItemClass::newItem(&const_cast<ItemStack&>(player.getInventory().getItem(actions[0].mSlot)))
+                        ItemClass::newItem(
+                            &const_cast<ItemStack&>(player.mInventory->mInventory->getItem(actions[0].mSlot))
+                        )
                     )) {
                     return InventoryTransactionError::NoError;
                 }
             }
         }
-        IF_LISTENED_END(EVENT_TYPES::onDropItem);
     }
+    IF_LISTENED_END(EVENT_TYPES::onDropItem);
     return origin(player, isSenderAuthority);
 }
 
@@ -138,14 +116,16 @@ LL_TYPE_INSTANCE_HOOK(
     struct PlayerOpenContainerEvent const& playerOpenContainerEvent
 ) {
     IF_LISTENED(EVENT_TYPES::onOpenContainer) {
-        Actor* actor = static_cast<WeakEntityRef*>((void*)&playerOpenContainerEvent)->tryUnwrap<Actor>();
-        if (actor && actor->isType(ActorType::Player)) {
-            if (!CallEvent(
-                    EVENT_TYPES::onOpenContainer,
-                    PlayerClass::newPlayer(static_cast<Player*>(actor)),
-                    BlockClass::newBlock(playerOpenContainerEvent.mUnkb08e33.as<BlockPos>(), actor->getDimensionId())
-                )) {
-                return EventResult::StopProcessing;
+        if (checkClientIsServerThread()) {
+            Actor* actor = static_cast<WeakEntityRef*>((void*)&playerOpenContainerEvent)->tryUnwrap<Actor>();
+            if (actor && actor->isType(ActorType::Player)) {
+                if (!CallEvent(
+                        EVENT_TYPES::onOpenContainer,
+                        PlayerClass::newPlayer(static_cast<Player*>(actor)),
+                        BlockClass::newBlock(playerOpenContainerEvent.mBlockPos, actor->getDimensionId())
+                    )) {
+                    return EventResult::StopProcessing;
+                }
             }
         }
     }
@@ -153,46 +133,59 @@ LL_TYPE_INSTANCE_HOOK(
     return origin(playerOpenContainerEvent);
 }
 
-LL_TYPE_INSTANCE_HOOK(
+LL_TYPE_INSTANCE_HOOK( // When player leaves or closes the container
     CloseContainerHook1,
     HookPriority::Normal,
-    ChestBlockActor,
-    &ChestBlockActor::$stopOpen,
+    ServerPlayer,
+    &ServerPlayer::doDeleteContainerManager,
     void,
-    Player& player
+    bool forceDisconnect
 ) {
     IF_LISTENED(EVENT_TYPES::onCloseContainer) {
-        if (!CallEvent(
-                EVENT_TYPES::onCloseContainer,
-                PlayerClass::newPlayer(&player),
-                BlockClass::newBlock(getPosition(), player.getDimensionId())
-            )) {
-            return;
+        if (mContainerManager) {
+            if (auto* pos = std::get_if<BlockPos>(&*mContainerManager->mScreenContext->mOwner); pos) {
+                if (getDimensionBlockSource().getBlock(*pos).mBlockType->isContainerBlock()) {
+                    CallEvent(
+                        EVENT_TYPES::onCloseContainer,
+                        PlayerClass::newPlayer(this),
+                        BlockClass::newBlock(*pos, getDimensionId())
+                    );
+                }
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onCloseContainer);
-    origin(player);
+    origin(forceDisconnect);
 }
 
-LL_TYPE_INSTANCE_HOOK(
+LL_TYPE_INSTANCE_HOOK( // Container closed caused by piston pushing
     CloseContainerHook2,
     HookPriority::Normal,
-    BarrelBlockActor,
-    &BarrelBlockActor::$stopOpen,
+    PistonBlockActor,
+    &PistonBlockActor::_spawnMovingBlock,
     void,
-    Player& player
+    BlockSource&    region,
+    BlockPos const& blockPos
 ) {
-    IF_LISTENED(EVENT_TYPES::onCloseContainer) {
-        if (!CallEvent(
-                EVENT_TYPES::onCloseContainer,
-                PlayerClass::newPlayer(&player),
-                BlockClass::newBlock(getPosition(), player.getDimensionId())
-            )) {
-            return;
+    if (region.getBlock(blockPos).mBlockType->isContainerBlock()) {
+        IF_LISTENED(EVENT_TYPES::onCloseContainer) {
+            region.mDimension.forEachPlayer([&](Player const& player) -> bool {
+                if (player.mContainerManager) {
+                    if (auto* pos = std::get_if<BlockPos>(&*player.mContainerManager->mScreenContext->mOwner);
+                        pos && *pos == blockPos) {
+                        CallEvent(
+                            EVENT_TYPES::onCloseContainer,
+                            PlayerClass::newPlayer(&player),
+                            BlockClass::newBlock(*pos, player.getDimensionId())
+                        );
+                    }
+                }
+                return true;
+            });
         }
+        IF_LISTENED_END(EVENT_TYPES::onCloseContainer);
     }
-    IF_LISTENED_END(EVENT_TYPES::onCloseContainer);
-    origin(player);
+    origin(region, blockPos);
 }
 
 LL_TYPE_INSTANCE_HOOK(
@@ -208,65 +201,84 @@ LL_TYPE_INSTANCE_HOOK(
     bool             forceBalanced
 ) {
     IF_LISTENED(EVENT_TYPES::onInventoryChange) {
-        if (!CallEvent(
-                EVENT_TYPES::onInventoryChange,
-                PlayerClass::newPlayer(this),
-                slot,
-                ItemClass::newItem(&const_cast<ItemStack&>(oldItem)),
-                ItemClass::newItem(&const_cast<ItemStack&>(newItem))
-            )) {
-            return;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onInventoryChange,
+                    PlayerClass::newPlayer(this),
+                    slot,
+                    ItemClass::newItem(&const_cast<ItemStack&>(oldItem)),
+                    ItemClass::newItem(&const_cast<ItemStack&>(newItem))
+                )) {
+                return;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onInventoryChange);
     origin(container, slot, oldItem, newItem, forceBalanced);
 }
 
-LL_TYPE_INSTANCE_HOOK(
-    AttackBlockHook,
+LL_STATIC_HOOK(
+    StartDestroyBlockHook,
     HookPriority::Normal,
-    Block,
-    &Block::attack,
-    bool,
-    Player*         player,
-    BlockPos const& pos
+    &ServerPlayerBlockUseHandler::onStartDestroyBlock,
+    void,
+    ServerPlayer&   player,
+    BlockPos const& pos,
+    int             face
 ) {
-    IF_LISTENED(EVENT_TYPES::onAttackBlock) {
-        ItemStack const& item = player->getSelectedItem();
-        if (!CallEvent(
-                EVENT_TYPES::onAttackBlock,
-                PlayerClass::newPlayer(player),
-                BlockClass::newBlock(pos, player->getDimensionId()),
-                !item.isNull() ? ItemClass::newItem(&const_cast<ItemStack&>(item)) : Local<Value>()
-            )) {
-            return false;
+    if (checkClientIsServerThread()) {
+        bool isCancelled = false;
+        IF_LISTENED(EVENT_TYPES::onAttackBlock) {
+            ItemStack const& item = player.getSelectedItem();
+            if (!CallEvent(
+                    EVENT_TYPES::onAttackBlock,
+                    PlayerClass::newPlayer(&player),
+                    BlockClass::newBlock(pos, player.getDimensionId()),
+                    !item.isNull() ? ItemClass::newItem(&const_cast<ItemStack&>(item)) : Local<Value>()
+                )) {
+                isCancelled = true;
+            }
+        }
+        IF_LISTENED_END(EVENT_TYPES::onAttackBlock);
+        IF_LISTENED(EVENT_TYPES::onStartDestroyBlock) {
+            if (!CallEvent(
+                    EVENT_TYPES::onStartDestroyBlock,
+                    PlayerClass::newPlayer(&player),
+                    BlockClass::newBlock(pos, player.getDimensionId())
+                )) {
+                isCancelled = true;
+            }
+        }
+        IF_LISTENED_END(EVENT_TYPES::onStartDestroyBlock)
+        if (isCancelled) {
+            return;
         }
     }
-    IF_LISTENED_END(EVENT_TYPES::onAttackBlock);
-    return origin(player, pos);
+    return origin(player, pos, face);
 }
 
 LL_TYPE_INSTANCE_HOOK(
     UseFrameHook1,
     HookPriority::Normal,
     ItemFrameBlock,
-    &ItemFrameBlock::$use,
-    bool,
-    Player&         player,
-    BlockPos const& pos,
-    uchar           face
+    &ItemFrameBlock::use,
+    void,
+    BlockEvents::BlockPlayerInteractEvent& eventData
 ) {
     IF_LISTENED(EVENT_TYPES::onUseFrameBlock) {
-        if (!CallEvent(
-                EVENT_TYPES::onUseFrameBlock,
-                PlayerClass::newPlayer(&player),
-                BlockClass::newBlock(pos, player.getDimensionId())
-            )) {
-            return false;
+        if (checkClientIsServerThread()) {
+            Player& player = eventData.mPlayer;
+            if (!CallEvent(
+                    EVENT_TYPES::onUseFrameBlock,
+                    PlayerClass::newPlayer(&player),
+                    BlockClass::newBlock(eventData.mPos, player.getDimensionId())
+                )) {
+                return;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onUseFrameBlock);
-    return origin(player, pos, face);
+    return origin(eventData);
 }
 
 LL_TYPE_INSTANCE_HOOK(
@@ -279,50 +291,39 @@ LL_TYPE_INSTANCE_HOOK(
     BlockPos const& pos
 ) {
     IF_LISTENED(EVENT_TYPES::onUseFrameBlock) {
-        if (!CallEvent(
-                EVENT_TYPES::onUseFrameBlock,
-                PlayerClass::newPlayer(player),
-                BlockClass::newBlock(pos, player->getDimensionId())
-            )) {
-            return false;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onUseFrameBlock,
+                    PlayerClass::newPlayer(player),
+                    BlockClass::newBlock(pos, player->getDimensionId())
+                )) {
+                return false;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onUseFrameBlock);
     return origin(player, pos);
 }
 
-LL_TYPE_INSTANCE_HOOK(EatHook1, HookPriority::Normal, Player, &Player::eat, void, ItemStack const& instance) {
+LL_TYPE_INSTANCE_HOOK(EatHook, HookPriority::Normal, Player, &Player::completeUsingItem, void) {
     IF_LISTENED(EVENT_TYPES::onAte) {
-        if (!CallEvent(
-                EVENT_TYPES::onAte,
-                PlayerClass::newPlayer(this),
-                ItemClass::newItem(&const_cast<ItemStack&>(instance))
-            )) {
+        if (checkClientIsServerThread()) {
+            std::set<std::string> const item_names{"minecraft:potion", "minecraft:milk_bucket", "minecraft:medicine"};
+            auto                        checked =
+                mItemInUse->mItem->getItem()->isFood() || item_names.contains(mItemInUse->mItem->getTypeName());
+            if (checked
+                && !CallEvent(
+                    EVENT_TYPES::onAte,
+                    PlayerClass::newPlayer(this),
+                    ItemClass::newItem(&*mItemInUse->mItem)
+                ))
+                stopUsingItem();
+            else origin();
             return;
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onAte);
-    origin(instance);
-}
-
-LL_TYPE_INSTANCE_HOOK(
-    EatHook2,
-    HookPriority::Normal,
-    ItemStack,
-    &ItemStack::useTimeDepleted,
-    ::ItemUseMethod,
-    Level*  level,
-    Player* player
-) {
-    IF_LISTENED(EVENT_TYPES::onAte) {
-        if (isPotionItem() || getTypeName() == "minecraft:milk_bucket") {
-            if (!CallEvent(EVENT_TYPES::onAte, PlayerClass::newPlayer(player), ItemClass::newItem(this))) {
-                return ItemUseMethod::Unknown;
-            }
-        }
-    }
-    IF_LISTENED_END(EVENT_TYPES::onAte);
-    return origin(level, player);
+    origin();
 }
 
 LL_TYPE_INSTANCE_HOOK(
@@ -335,26 +336,37 @@ LL_TYPE_INSTANCE_HOOK(
     ChangeDimensionRequest&& changeRequest
 ) {
     IF_LISTENED(EVENT_TYPES::onChangeDim) {
-        if (!CallEvent(
-                EVENT_TYPES::onChangeDim,
-                PlayerClass::newPlayer(&player),
-                Number::newNumber(changeRequest.mToDimensionId->id)
-            )) {
-            return;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onChangeDim,
+                    PlayerClass::newPlayer(&player),
+                    Number::newNumber(changeRequest.mToDimensionId->mValue)
+                )) {
+                return;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onChangeDim);
     origin(player, std::move(changeRequest));
 }
 
-LL_TYPE_INSTANCE_HOOK(OpenContainerScreenHook, HookPriority::Normal, Player, &Player::canOpenContainerScreen, bool) {
+LL_TYPE_INSTANCE_HOOK(
+    OpenContainerScreenHook,
+    HookPriority::Normal,
+    ItemStackNetManagerBase,
+    &ItemStackNetManagerBase::$onContainerScreenOpen,
+    void,
+    ContainerScreenContext const& screenContext
+) {
     IF_LISTENED(EVENT_TYPES::onOpenContainerScreen) {
-        if (!CallEvent(EVENT_TYPES::onOpenContainerScreen, PlayerClass::newPlayer(this))) {
-            return false;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(EVENT_TYPES::onOpenContainerScreen, PlayerClass::newPlayer(&mPlayer))) {
+                return;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onOpenContainerScreen);
-    return origin();
+    return origin(screenContext);
 }
 
 LL_TYPE_STATIC_HOOK(
@@ -369,12 +381,14 @@ LL_TYPE_STATIC_HOOK(
     class Level&    level
 ) {
     IF_LISTENED(EVENT_TYPES::onUseRespawnAnchor) {
-        if (!CallEvent(
-                EVENT_TYPES::onUseRespawnAnchor,
-                PlayerClass::newPlayer(&player),
-                IntPos::newPos(pos, region.getDimensionId())
-            )) {
-            return false;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onUseRespawnAnchor,
+                    PlayerClass::newPlayer(&player),
+                    IntPos::newPos(pos, region.getDimensionId())
+                )) {
+                return false;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onUseRespawnAnchor);
@@ -390,12 +404,14 @@ LL_TYPE_INSTANCE_HOOK(
     BlockPos const& pos
 ) {
     IF_LISTENED(EVENT_TYPES::onBedEnter) {
-        if (!CallEvent(
-                EVENT_TYPES::onBedEnter,
-                PlayerClass::newPlayer(this),
-                IntPos::newPos(pos, this->getDimensionId())
-            )) {
-            return BedSleepingResult::Ok;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onBedEnter,
+                    PlayerClass::newPlayer(this),
+                    IntPos::newPos(pos, this->getDimensionId())
+                )) {
+                return BedSleepingResult::Ok;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onBedEnter);
@@ -403,8 +419,10 @@ LL_TYPE_INSTANCE_HOOK(
 }
 LL_TYPE_INSTANCE_HOOK(OpenInventoryHook, HookPriority::Normal, ServerPlayer, &ServerPlayer::$openInventory, void, ) {
     IF_LISTENED(EVENT_TYPES::onOpenInventory) {
-        if (!CallEvent(EVENT_TYPES::onOpenInventory, PlayerClass::newPlayer(this))) {
-            return;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(EVENT_TYPES::onOpenInventory, PlayerClass::newPlayer(this))) {
+                return;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onOpenInventory);
@@ -421,14 +439,17 @@ LL_TYPE_INSTANCE_HOOK(
     float  inSpeed
 ) {
     IF_LISTENED(EVENT_TYPES::onPlayerPullFishingHook) {
-        if (!CallEvent(
-                EVENT_TYPES::onPlayerPullFishingHook,
-                PlayerClass::newPlayer(this->getPlayerOwner()),
-                EntityClass::newEntity(&inEntity),
-                inEntity.isType(ActorType::ItemEntity) ? ItemClass::newItem(&static_cast<ItemActor&>(inEntity).item())
-                                                       : Local<Value>()
-            )) {
-            return;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onPlayerPullFishingHook,
+                    PlayerClass::newPlayer(this->getPlayerOwner()),
+                    EntityClass::newEntity(&inEntity),
+                    inEntity.isType(ActorType::ItemEntity)
+                        ? ItemClass::newItem(&static_cast<ItemActor&>(inEntity).item())
+                        : Local<Value>()
+                )) {
+                return;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onPlayerPullFishingHook);
@@ -449,15 +470,17 @@ LL_TYPE_INSTANCE_HOOK(
     uchar            face
 ) {
     IF_LISTENED(EVENT_TYPES::onUseBucketPlace) {
-        if (!CallEvent(
-                EVENT_TYPES::onUseBucketPlace,
-                PlayerClass::newPlayer(static_cast<Player*>(placer)),
-                ItemClass::newItem(&const_cast<ItemStack&>(instance)),
-                BlockClass::newBlock(contents, pos, region),
-                Number::newNumber(face),
-                FloatPos::newPos(pos, region.getDimensionId())
-            )) {
-            return false;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onUseBucketPlace,
+                    PlayerClass::newPlayer(static_cast<Player*>(placer)),
+                    ItemClass::newItem(&const_cast<ItemStack&>(instance)),
+                    BlockClass::newBlock(contents, pos, region),
+                    Number::newNumber(face),
+                    FloatPos::newPos(pos, region.getDimensionId())
+                )) {
+                return false;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onUseBucketPlace);
@@ -475,15 +498,17 @@ LL_TYPE_INSTANCE_HOOK(
     BlockPos const& pos
 ) {
     IF_LISTENED(EVENT_TYPES::onUseBucketTake) {
-        if (!CallEvent(
-                EVENT_TYPES::onUseBucketTake,
-                PlayerClass::newPlayer(&static_cast<Player&>(entity)),
-                ItemClass::newItem(&item),
-                BlockClass::newBlock(pos, entity.getDimensionId()),
-                Number::newNumber(-1),
-                FloatPos::newPos(pos, entity.getDimensionId())
-            )) {
-            return false;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onUseBucketTake,
+                    PlayerClass::newPlayer(&static_cast<Player&>(entity)),
+                    ItemClass::newItem(&item),
+                    BlockClass::newBlock(pos, entity.getDimensionId()),
+                    Number::newNumber(-1),
+                    FloatPos::newPos(pos, entity.getDimensionId())
+                )) {
+                return false;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onUseBucketTake);
@@ -501,52 +526,29 @@ LL_TYPE_INSTANCE_HOOK(
     BlockPos const& pos
 ) {
     IF_LISTENED(EVENT_TYPES::onUseBucketTake) {
-        if (!CallEvent(
-                EVENT_TYPES::onUseBucketTake,
-                PlayerClass::newPlayer(&static_cast<Player&>(entity)),
-                ItemClass::newItem(&item),
-                BlockClass::newBlock(pos, entity.getDimensionId()),
-                Number::newNumber(-1),
-                FloatPos::newPos(pos, entity.getDimensionId())
-            )) {
-            return false;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onUseBucketTake,
+                    PlayerClass::newPlayer(&static_cast<Player&>(entity)),
+                    ItemClass::newItem(&item),
+                    BlockClass::newBlock(pos, entity.getDimensionId()),
+                    Number::newNumber(-1),
+                    FloatPos::newPos(pos, entity.getDimensionId())
+                )) {
+                return false;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onUseBucketTake);
     return origin(item, entity, pos);
 }
 
-// LL_TYPE_INSTANCE_HOOK(
-//     UseBucketTakeHook3,
-//     HookPriority::Normal,
-//     BucketItem,
-//     &BucketItem::_useOn,
-//     InteractionResult,
-//     ItemStack&  instance,
-//     Actor&      entity,
-//     BlockPos    pos,
-//     uchar       face,
-//     Vec3 const& clickPos
-// ) {
-//     IF_LISTENED(EVENT_TYPES::onUseBucketTake) {
-//         CallEventRtnValue(
-//             EVENT_TYPES::onUseBucketTake,
-//             InteractionResult{InteractionResult::Result::Fail},
-//             PlayerClass::newPlayer(),
-//             ItemClass::newItem(&instance, false),
-//             EntityClass::newEntity(&entity),
-//             Number::newNumber(face),
-//             FloatPos::newPos(pos, entity.getDimensionId())
-//         );
-//     }
-//     IF_LISTENED_END(EVENT_TYPES::onUseBucketTake);
-//     return origin(instance, entity, pos, face, clickPos);
-// }
-
 LL_TYPE_INSTANCE_HOOK(ConsumeTotemHook, HookPriority::Normal, Player, &Player::$consumeTotem, bool) {
     IF_LISTENED(EVENT_TYPES::onConsumeTotem) {
-        if (!CallEvent(EVENT_TYPES::onConsumeTotem, PlayerClass::newPlayer(this))) {
-            return false;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(EVENT_TYPES::onConsumeTotem, PlayerClass::newPlayer(this))) {
+                return false;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onConsumeTotem);
@@ -556,20 +558,23 @@ LL_TYPE_INSTANCE_HOOK(ConsumeTotemHook, HookPriority::Normal, Player, &Player::$
 LL_TYPE_INSTANCE_HOOK(
     SetArmorHook,
     HookPriority::Normal,
-    ServerPlayer,
-    &ServerPlayer::$setArmor,
+    Actor,
+    &Actor::$setArmor,
     void,
-    ArmorSlot        armorSlot,
-    ItemStack const& item
+    SharedTypes::Legacy::ArmorSlot const armorSlot,
+    ItemStack const&                     item
 ) {
+
     IF_LISTENED(EVENT_TYPES::onSetArmor) {
-        if (!CallEvent(
-                EVENT_TYPES::onSetArmor,
-                PlayerClass::newPlayer(this),
-                Number::newNumber((int)armorSlot),
-                ItemClass::newItem(&const_cast<ItemStack&>(item))
-            )) {
-            return;
+        if (checkClientIsServerThread() && isPlayer()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onSetArmor,
+                    PlayerClass::newPlayer(reinterpret_cast<Player*>(this)),
+                    Number::newNumber(static_cast<int>(armorSlot)),
+                    ItemClass::newItem(&const_cast<ItemStack&>(item))
+                )) {
+                return;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onSetArmor);
@@ -581,18 +586,20 @@ LL_TYPE_INSTANCE_HOOK(
     HookPriority::Normal,
     Player,
     &Player::interact,
-    bool,
+    InteractionResult,
     Actor&      actor,
     Vec3 const& location
 ) {
     IF_LISTENED(EVENT_TYPES::onPlayerInteractEntity) {
-        if (!CallEvent(
-                EVENT_TYPES::onPlayerInteractEntity,
-                PlayerClass::newPlayer(this),
-                EntityClass::newEntity(&actor),
-                FloatPos::newPos(location, getDimensionId())
-            )) {
-            return false;
+        if (checkClientIsServerThread()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onPlayerInteractEntity,
+                    PlayerClass::newPlayer(this),
+                    EntityClass::newEntity(&actor),
+                    FloatPos::newPos(location, getDimensionId())
+                )) {
+                return {false, true};
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onPlayerInteractEntity)
@@ -602,20 +609,22 @@ LL_TYPE_INSTANCE_HOOK(
 LL_TYPE_INSTANCE_HOOK(
     AddEffectHook,
     HookPriority::Normal,
-    Player,
-    &Player::addEffect,
+    Actor,
+    &Actor::addEffect,
     void,
     ::MobEffectInstance const& effect
 ) {
     IF_LISTENED(EVENT_TYPES::onEffectAdded) {
-        if (!CallEvent(
-                EVENT_TYPES::onEffectAdded,
-                PlayerClass::newPlayer(this),
-                String::newString(effect.getComponentName().getString()),
-                Number::newNumber(effect.getAmplifier()),
-                Number::newNumber(effect.getDuration().getValueForSerialization())
-            )) {
-            return;
+        if (checkClientIsServerThread() && isPlayer()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onEffectAdded,
+                    PlayerClass::newPlayer(reinterpret_cast<Player*>(this)),
+                    String::newString(MobEffect::mMobEffects()[effect.mId]->mComponentName->getString()),
+                    Number::newNumber(effect.mAmplifier),
+                    Number::newNumber(effect.mDuration->mValue)
+                )) {
+                return;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onEffectAdded);
@@ -625,25 +634,27 @@ LL_TYPE_INSTANCE_HOOK(
 LL_TYPE_INSTANCE_HOOK(
     RemoveEffectHook,
     HookPriority::Normal,
-    Player,
-    &Player::$onEffectRemoved,
+    Actor,
+    &Actor::$onEffectRemoved,
     void,
     ::MobEffectInstance& effect
 ) {
     IF_LISTENED(EVENT_TYPES::onEffectRemoved) {
-        if (!CallEvent(
-                EVENT_TYPES::onEffectRemoved,
-                PlayerClass::newPlayer(this),
-                String::newString(effect.getComponentName().getString())
-            )) {
-            return;
+        if (checkClientIsServerThread() && isPlayer()) {
+            if (!CallEvent(
+                    EVENT_TYPES::onEffectRemoved,
+                    PlayerClass::newPlayer(reinterpret_cast<Player*>(this)),
+                    String::newString(MobEffect::mMobEffects()[effect.mId]->mComponentName->getString())
+                )) {
+                return;
+            }
         }
     }
     IF_LISTENED_END(EVENT_TYPES::onEffectRemoved);
     origin(effect);
 }
 
-void StartDestroyBlock() { StartDestroyHook::hook(); }
+void StartDestroyBlock() { StartDestroyBlockHook::hook(); }
 void DropItem() {
     DropItemHook1::hook();
     DropItemHook2::hook();
@@ -654,15 +665,12 @@ void CloseContainerEvent() {
     CloseContainerHook2::hook();
 }
 void ChangeSlotEvent() { ChangeSlotHook::hook(); }
-void AttackBlockEvent() { AttackBlockHook::hook(); }
+void AttackBlockEvent() { StartDestroyBlockHook::hook(); }
 void UseFrameEvent() {
     UseFrameHook1::hook();
     UseFrameHook2::hook();
 }
-void EatEvent() {
-    EatHook1::hook();
-    EatHook2::hook();
-}
+void EatEvent() { EatHook::hook(); }
 void ChangeDimensionEvent() { ChangeDimensionHook::hook(); };
 void OpenContainerScreenEvent() { OpenContainerScreenHook::hook(); }
 void UseRespawnAnchorEvent() { UseRespawnAnchorHook::hook(); }

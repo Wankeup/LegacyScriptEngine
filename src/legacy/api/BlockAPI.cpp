@@ -1,27 +1,29 @@
-#include "api/BlockAPI.h"
+#include "legacy/api/BlockAPI.h"
 
 #include "ScriptX/ScriptX.h"
-#include "api/APIHelp.h"
-#include "api/BaseAPI.h"
-#include "api/BlockEntityAPI.h"
-#include "api/ContainerAPI.h"
-#include "api/EntityAPI.h"
-#include "api/McAPI.h"
-#include "api/NbtAPI.h"
+#include "legacy/api/APIHelp.h"
+#include "legacy/api/BaseAPI.h"
+#include "legacy/api/BlockEntityAPI.h"
+#include "legacy/api/ContainerAPI.h"
+#include "legacy/api/McAPI.h"
+#include "legacy/api/NbtAPI.h"
 #include "ll/api/service/Bedrock.h"
-#include "mc/deps/core/string/HashedString.h"
+#include "lse/api/helper/BlockHelper.h"
 #include "mc/deps/core/utility/optional_ref.h"
+#include "mc/deps/shared_types/v1_26_0/block/LiquidReaction.h"
 #include "mc/world/level/BlockSource.h"
 #include "mc/world/level/ChunkBlockPos.h"
 #include "mc/world/level/block/BedrockBlockNames.h"
 #include "mc/world/level/block/Block.h"
+#include "mc/world/level/block/BlockChangeContext.h"
+#include "mc/world/level/block/VanillaBlockTags.h"
 #include "mc/world/level/block/actor/BlockActor.h"
 #include "mc/world/level/block/block_serialization_utils/BlockSerializationUtils.h"
-#include "mc/world/level/block/components/BlockLiquidDetectionComponent.h"
 #include "mc/world/level/chunk/LevelChunk.h"
-#include "mc/world/level/dimension/Dimension.h"
 
 #include <exception>
+
+using lse::api::BlockHelper;
 
 //////////////////// Class Definition ////////////////////
 
@@ -66,24 +68,6 @@ ClassDefine<BlockClass> BlockClassBuilder =
         .instanceFunction("getTag", &BlockClass::getNbt)
         .build();
 
-namespace lse::BlockAPI {
-inline bool isValidHeight(WeakRef<Dimension> dim, std::variant<int, float> height) {
-    if (dim) {
-        if (std::holds_alternative<int>(height)) {
-            int y = std::get<int>(height);
-            return dim->getMinHeight() <= y && dim->getHeight() >= y;
-        } else {
-            float y = std::get<float>(height);
-            return dim->getMinHeight() <= y && dim->getHeight() >= y;
-        }
-    }
-
-    return false;
-}
-} // namespace lse::BlockAPI
-
-using lse::BlockAPI::isValidHeight;
-
 //////////////////// Classes ////////////////////
 
 BlockClass::BlockClass(Block const& block) : ScriptClass(ScriptClass::ConstructFromCpp<BlockClass>{}), block(&block) {
@@ -96,6 +80,14 @@ BlockClass::BlockClass(Block const& block, BlockPos const& pos, DimensionType di
     preloadData(pos, dim);
 }
 
+// member function
+void BlockClass::preloadData(BlockPos pos, DimensionType dim) {
+    name     = block->buildDescriptionName();
+    type     = block->getTypeName();
+    id       = block->getBlockItemId();
+    blockPos = {pos.x, pos.y, pos.z, dim};
+}
+
 // generating function
 Local<Object> BlockClass::newBlock(Block const& block, BlockPos const& pos, DimensionType dim) {
     auto newp = new BlockClass(block, pos, dim);
@@ -103,8 +95,8 @@ Local<Object> BlockClass::newBlock(Block const& block, BlockPos const& pos, Dime
 }
 
 Local<Object> BlockClass::newBlock(BlockPos const& pos, DimensionType dim) {
-    if (auto dimension = ll::service::getLevel()->getDimension(dim)) {
-        if (isValidHeight(dimension, pos.y)) {
+    if (auto dimension = ll::service::getLevel()->getDimension(dim).lock()) {
+        if (BlockHelper::isValidHeight(dimension, pos.y)) {
             auto& bl = dimension->getBlockSourceFromMainChunkSource().getBlock(pos);
             return BlockClass::newBlock(bl, pos, dim);
         }
@@ -122,9 +114,9 @@ Local<Object> BlockClass::newBlock(Block const& block, BlockPos const& pos, Bloc
 }
 
 Local<Object> BlockClass::newBlock(IntVec4 pos) {
-    BlockPos bp = {(float)pos.x, (float)pos.y, (float)pos.z};
-    if (auto dimension = ll::service::getLevel()->getDimension(pos.dim)) {
-        if (isValidHeight(dimension, pos.y)) {
+    BlockPos bp = {static_cast<float>(pos.x), static_cast<float>(pos.y), static_cast<float>(pos.z)};
+    if (auto dimension = ll::service::getLevel()->getDimension(pos.dim).lock()) {
+        if (BlockHelper::isValidHeight(dimension, pos.y)) {
             auto& bl = dimension->getBlockSourceFromMainChunkSource().getBlock(bp);
             return BlockClass::newBlock(bl, bp, pos.dim);
         }
@@ -136,285 +128,300 @@ Local<Object> BlockClass::newBlock(IntVec4 pos) {
     return BlockClass::newBlock(block, bp, pos.dim);
 }
 
-Block const* BlockClass::extract(Local<Value> v) {
+Block const* BlockClass::extract(Local<Value> const& v) {
     if (EngineScope::currentEngine()->isInstanceOf<BlockClass>(v))
         return EngineScope::currentEngine()->getNativeInstance<BlockClass>(v)->get();
-    else return nullptr;
+    return nullptr;
 }
 
-// member function
-void BlockClass::preloadData(BlockPos pos, DimensionType dim) {
-    name     = block->buildDescriptionName();
-    type     = block->getTypeName();
-    id       = block->getBlockItemId();
-    blockPos = {pos.x, pos.y, pos.z, dim};
-}
-
-Local<Value> BlockClass::getName() {
+Local<Value> BlockClass::getName() const {
     try {
         // preloaded
         return String::newString(name);
     }
-    CATCH("Fail in getBlockName!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::getType() {
+Local<Value> BlockClass::getType() const {
     try {
         // preloaded
         return String::newString(type);
     }
-    CATCH("Fail in getBlockType!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::getId() {
+Local<Value> BlockClass::getId() const {
     try {
         // preloaded
         return Number::newNumber(id);
     }
-    CATCH("Fail in getBlockId!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::getPos() {
+Local<Value> BlockClass::getPos() const {
     try {
         // preloaded
         return IntPos::newPos(blockPos);
     }
-    CATCH("Fail in getBlockPos!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::getTileData() {
+Local<Value> BlockClass::getTileData() const {
     try {
-        // preloaded
-        return Number::newNumber(block->getVariant());
+        return Number::newNumber(block->getBlockType().getVariant(*block));
     }
-    CATCH("Fail in getTileData!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::getVariant() {
+Local<Value> BlockClass::getVariant() const {
     try {
-        return Number::newNumber(block->getVariant());
+        return Number::newNumber(block->getBlockType().getVariant(*block));
     }
-    CATCH("Fail in getVariant!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::getTranslucency() {
+Local<Value> BlockClass::getTranslucency() const {
     try {
-        return Number::newNumber(block->getTranslucency());
+        return Number::newNumber(block->getBlockType().mTranslucency);
     }
-    CATCH("Fail in getTranslucency!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::getThickness() {
+Local<Value> BlockClass::getThickness() const {
     try {
-        return Number::newNumber(block->getThickness());
+        return Number::newNumber(block->getBlockType().mThickness);
     }
-    CATCH("Fail in getThickness!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isAir() {
+Local<Value> BlockClass::isAir() const {
     try {
         return Boolean::newBoolean(block->isAir());
     }
-    CATCH("Fail in isAir!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isBounceBlock() {
+Local<Value> BlockClass::isBounceBlock() const {
     try {
-        return Boolean::newBoolean(block->isBounceBlock());
+        return Boolean::newBoolean(block->getBlockType().getBounciness(
+            ll::service::getLevel()->getDimension(id).lock()->getBlockSourceFromMainChunkSource(),
+            blockPos.getBlockPos()
+        ));
     }
-    CATCH("Fail in isBounceBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isButtonBlock() {
+Local<Value> BlockClass::isButtonBlock() const {
     try {
-        return Boolean::newBoolean(block->isButtonBlock());
+        return Boolean::newBoolean(block->getBlockType().isButtonBlock());
     }
-    CATCH("Fail in isButtonBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isCropBlock() {
+Local<Value> BlockClass::isCropBlock() const {
     try {
-        return Boolean::newBoolean(block->isCropBlock());
+        return Boolean::newBoolean(block->hasTag(VanillaBlockTags::Crop()));
     }
-    CATCH("Fail in isCropBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isDoorBlock() {
+Local<Value> BlockClass::isDoorBlock() const {
     try {
-        return Boolean::newBoolean(block->isDoorBlock());
+        return Boolean::newBoolean(block->getBlockType().isDoorBlock());
     }
-    CATCH("Fail in isDoorBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isFenceBlock() {
+Local<Value> BlockClass::isFenceBlock() const {
     try {
-        return Boolean::newBoolean(block->isFenceBlock());
+        return Boolean::newBoolean(block->getBlockType().isFenceBlock());
     }
-    CATCH("Fail in isFenceBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isFenceGateBlock() {
+Local<Value> BlockClass::isFenceGateBlock() const {
     try {
-        return Boolean::newBoolean(block->isFenceGateBlock());
+        return Boolean::newBoolean(block->getBlockType().isFenceGateBlock());
     }
-    CATCH("Fail in isFenceGateBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isThinFenceBlock() {
+Local<Value> BlockClass::isThinFenceBlock() const {
     try {
-        return Boolean::newBoolean(block->isThinFenceBlock());
+        return Boolean::newBoolean(block->getBlockType().isThinFenceBlock());
     }
-    CATCH("Fail in isThinFenceBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isHeavyBlock() {
+Local<Value> BlockClass::isHeavyBlock() const {
     try {
-        return Boolean::newBoolean(block->isFallingBlock());
+        return Boolean::newBoolean(block->getBlockType().mFalling);
     }
-    CATCH("Fail in isHeavyBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isStemBlock() {
+Local<Value> BlockClass::isStemBlock() const {
     try {
-        return Boolean::newBoolean(block->isStemBlock());
+        return Boolean::newBoolean(block->getBlockType().isStemBlock());
     }
-    CATCH("Fail in isStemBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isSlabBlock() {
+Local<Value> BlockClass::isSlabBlock() const {
     try {
-        return Boolean::newBoolean(block->isSlabBlock());
+        return Boolean::newBoolean(block->getBlockType().isSlabBlock());
     }
-    CATCH("Fail in isSlabBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isUnbreakable() {
+Local<Value> BlockClass::isUnbreakable() const {
     try {
-        return Boolean::newBoolean(block->isUnbreakable());
+        return Boolean::newBoolean(block->mDirectData->mDestroySpeed < 0.0f);
     }
-    CATCH("Fail in isUnbreakable!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::isWaterBlockingBlock() {
+Local<Value> BlockClass::isWaterBlockingBlock() const {
     try {
-        return Boolean::newBoolean(BlockLiquidDetectionComponent::isLiquidBlocking(*block));
+        return Boolean::newBoolean(
+            block->mDirectData->mWaterDetectionRule->mOnLiquidTouches == SharedTypes::v1_26_0::LiquidReaction::Blocking
+        );
     }
-    CATCH("Fail in isWaterBlockingBlock!");
+    CATCH_AND_THROW
 }
 
-Local<Value> BlockClass::destroyBlock(const Arguments& args) {
+Local<Value> BlockClass::getNbt(Arguments const&) const {
+    try {
+        return NbtCompoundClass::pack(block->mSerializationId->clone());
+    }
+    CATCH_AND_THROW
+}
+
+Local<Value> BlockClass::setNbt(Arguments const& args) {
+    CHECK_ARGS_COUNT(args, 1);
+
+    try {
+        auto nbt = NbtCompoundClass::extract(args[0]);
+        if (!nbt) return {}; // Null
+
+        // update Pre Data
+        auto result = BlockSerializationUtils::tryGetBlockFromNBT(*nbt, nullptr);
+        if (Block const* bl = result.second) {
+            ll::service::getLevel()
+                ->getDimension(blockPos.dim)
+                .lock()
+                ->getBlockSourceFromMainChunkSource()
+                .setBlock(
+                    blockPos.getBlockPos(),
+                    *bl,
+                    3,
+                    nullptr,
+                    nullptr,
+                    BlockChangeContext(StatelessBlockChangeContext::Commands)
+                );
+        }
+        preloadData(blockPos.getBlockPos(), blockPos.getDimensionId());
+        return Boolean::newBoolean(true);
+    }
+    CATCH_AND_THROW
+}
+
+Local<Value> BlockClass::getBlockState(Arguments const&) const {
+    try {
+        auto list = block->mSerializationId;
+        try {
+            return Tag2Value(&list->at("states").get(), true);
+        } catch (...) {
+            return Array::newArray();
+        }
+    } catch (std::out_of_range const&) {
+        return Object::newObject();
+    }
+    CATCH_AND_THROW
+}
+
+Local<Value> BlockClass::hasContainer(Arguments const&) const {
+    try {
+        auto& bl = ll::service::getLevel()
+                       ->getDimension(blockPos.dim)
+                       .lock()
+                       ->getBlockSourceFromMainChunkSource()
+                       .getBlock(blockPos.getBlockPos());
+        return Boolean::newBoolean(bl.getBlockType().isContainerBlock());
+    }
+    CATCH_AND_THROW
+}
+
+Local<Value> BlockClass::getContainer(Arguments const&) const {
+    try {
+        Container* container = ll::service::getLevel()
+                                   ->getDimension(blockPos.dim)
+                                   .lock()
+                                   ->getBlockSourceFromMainChunkSource()
+                                   .getBlockEntity(blockPos.getBlockPos())
+                                   ->getContainer();
+        return container ? ContainerClass::newContainer(container) : Local<Value>();
+    }
+    CATCH_AND_THROW
+}
+
+Local<Value> BlockClass::hasBlockEntity(Arguments const&) const {
+    try {
+        return Boolean::newBoolean(block->getBlockType().mBlockEntityType != BlockActorType::Undefined);
+    }
+    CATCH_AND_THROW
+}
+
+Local<Value> BlockClass::getBlockEntity(Arguments const&) const {
+    try {
+        BlockActor* be = ll::service::getLevel()
+                             ->getDimension(blockPos.dim)
+                             .lock()
+                             ->getBlockSourceFromMainChunkSource()
+                             .getBlockEntity(blockPos.getBlockPos());
+        return be ? BlockEntityClass::newBlockEntity(be, blockPos.dim) : Local<Value>();
+    }
+    CATCH_AND_THROW
+}
+
+Local<Value> BlockClass::removeBlockEntity(Arguments const&) const {
+    try {
+        return Boolean::newBoolean(
+            ll::service::getLevel()
+                ->getDimension(blockPos.dim)
+                .lock()
+                ->getBlockSourceFromMainChunkSource()
+                .getChunkAt(blockPos.getBlockPos())
+                ->removeBlockEntity(blockPos.getBlockPos())
+            != nullptr
+        );
+    }
+    CATCH_AND_THROW
+}
+
+Local<Value> BlockClass::destroyBlock(Arguments const& args) const {
     CHECK_ARGS_COUNT(args, 1);
     CHECK_ARG_TYPE(args[0], ValueKind::kBoolean);
 
     try {
         // same as `Level::getBlockInstance(pos.getBlockPos(),
         // pos.dim).breakNaturally()` when drop
-        BlockSource& bl = ll::service::getLevel()->getDimension(blockPos.dim)->getBlockSourceFromMainChunkSource();
+        BlockSource& bl =
+            ll::service::getLevel()->getDimension(blockPos.dim).lock()->getBlockSourceFromMainChunkSource();
         return Boolean::newBoolean(
-            ll::service::getLevel()->destroyBlock(bl, blockPos.getBlockPos(), args[0].asBoolean().value())
+            ll::service::getLevel()->destroyBlock(
+                bl,
+                blockPos.getBlockPos(),
+                args[0].asBoolean().value(),
+                BlockChangeContext(StatelessBlockChangeContext::Commands)
+            )
         );
     }
-    CATCH("Fail in destroyBlock!");
-}
-
-Local<Value> BlockClass::getNbt(const Arguments&) {
-    try {
-        return NbtCompoundClass::pack(block->getSerializationId().clone());
-    }
-    CATCH("Fail in getNbt!");
-}
-
-Local<Value> BlockClass::setNbt(const Arguments& args) {
-    CHECK_ARGS_COUNT(args, 1);
-
-    try {
-        auto nbt = NbtCompoundClass::extract(args[0]);
-        if (!nbt) return Local<Value>(); // Null
-
-        // update Pre Data
-        auto         result = BlockSerializationUtils::tryGetBlockFromNBT(*nbt, nullptr);
-        const Block* bl     = result.second;
-        if (bl) {
-            ll::service::getLevel()
-                ->getDimension(blockPos.dim)
-                ->getBlockSourceFromMainChunkSource()
-                .setBlock(blockPos.getBlockPos(), *bl, 3, nullptr, nullptr);
-        }
-        preloadData(blockPos.getBlockPos(), blockPos.getDimensionId());
-        return Boolean::newBoolean(true);
-    }
-    CATCH("Fail in setNbt!")
-}
-
-Local<Value> BlockClass::getBlockState(const Arguments&) {
-    return Local<Value>();
-    try {
-        auto list = block->getSerializationId();
-        try {
-            return Tag2Value(&list.at("states").get(), true);
-        } catch (...) {
-            return Array::newArray();
-        }
-    } catch (const std::out_of_range&) {
-        return Object::newObject();
-    }
-    CATCH("Fail in getBlockState!")
-}
-
-Local<Value> BlockClass::hasContainer(const Arguments&) {
-    try {
-        auto& bl = ll::service::getLevel()
-                       ->getDimension(blockPos.dim)
-                       ->getBlockSourceFromMainChunkSource()
-                       .getBlock(blockPos.getBlockPos());
-        return Boolean::newBoolean(bl.isContainerBlock());
-    }
-    CATCH("Fail in hasContainer!");
-}
-
-Local<Value> BlockClass::getContainer(const Arguments&) {
-    try {
-        Container* container = ll::service::getLevel()
-                                   ->getDimension(blockPos.dim)
-                                   ->getBlockSourceFromMainChunkSource()
-                                   .getBlockEntity(blockPos.getBlockPos())
-                                   ->getContainer();
-        return container ? ContainerClass::newContainer(container) : Local<Value>();
-    }
-    CATCH("Fail in getContainer!");
-}
-
-Local<Value> BlockClass::hasBlockEntity(const Arguments&) {
-    try {
-        return Boolean::newBoolean(block->hasBlockEntity());
-    }
-    CATCH("Fail in hasBlockEntity!");
-}
-
-Local<Value> BlockClass::getBlockEntity(const Arguments&) {
-    try {
-        BlockActor* be = ll::service::getLevel()
-                             ->getDimension(blockPos.dim)
-                             ->getBlockSourceFromMainChunkSource()
-                             .getBlockEntity(blockPos.getBlockPos());
-        return be ? BlockEntityClass::newBlockEntity(be, blockPos.dim) : Local<Value>();
-    }
-    CATCH("Fail in getBlockEntity!");
-}
-
-Local<Value> BlockClass::removeBlockEntity(const Arguments&) {
-    try {
-        ll::service::getLevel()
-            ->getDimension(blockPos.dim)
-            ->getBlockSourceFromMainChunkSource()
-            .removeBlockEntity(blockPos.getBlockPos());
-        return Boolean::newBoolean(true);
-    }
-    CATCH("Fail in removeBlockEntity!");
+    CATCH_AND_THROW
 }
 
 // public API
-Local<Value> McClass::getBlock(const Arguments& args) {
+Local<Value> McClass::getBlock(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1);
 
     try {
@@ -424,20 +431,15 @@ Local<Value> McClass::getBlock(const Arguments& args) {
             if (IsInstanceOf<IntPos>(args[0])) {
                 // IntPos
                 IntPos* posObj = IntPos::extractPos(args[0]);
-                if (posObj->dim < 0) return Boolean::newBoolean(false);
-                else {
-                    pos = *posObj;
-                }
+                if (posObj->dim < 0) return {};
+                pos = static_cast<IntVec4>(*posObj);
             } else if (IsInstanceOf<FloatPos>(args[0])) {
                 // FloatPos
                 FloatPos* posObj = FloatPos::extractPos(args[0]);
-                if (posObj->dim < 0) return Boolean::newBoolean(false);
-                else {
-                    pos = posObj->toIntVec4();
-                }
+                if (posObj->dim < 0) return {};
+                pos = posObj->toIntVec4();
             } else {
-                LOG_WRONG_ARG_TYPE(__FUNCTION__);
-                return Local<Value>();
+                throw WrongArgTypeException(__FUNCTION__);
             }
         } else if (args.size() == 4) {
             // Number Pos
@@ -452,32 +454,35 @@ Local<Value> McClass::getBlock(const Arguments& args) {
                 args[3].asNumber().toInt32()
             };
         } else {
-            LOG_WRONG_ARGS_COUNT(__FUNCTION__);
-            return Local<Value>();
+            throw WrongArgsCountException(__FUNCTION__);
         }
 
-        auto dimPtr = ll::service::getLevel()->getDimension(pos.dim).get();
+        auto dimPtr = ll::service::getLevel()->getDimension(pos.dim).lock();
         if (!dimPtr) {
             return {};
         }
         BlockSource& bs        = dimPtr->getBlockSourceFromMainChunkSource();
-        short        minHeight = dimPtr->getMinHeight();
-        if (pos.y < minHeight || pos.y > dimPtr->getHeight()) {
+        short        minHeight = dimPtr->mHeightRange->mMin;
+        if (pos.y < minHeight || pos.y > dimPtr->mHeightRange->mMax) {
             return {};
         }
         auto lc = bs.getChunkAt(pos.getBlockPos());
         if (!lc) {
             return {};
         }
-        ChunkBlockPos cbpos = ChunkBlockPos(pos.getBlockPos(), minHeight);
-        auto&         block = lc->getBlock(cbpos);
-        BlockPos      bp{pos.x, pos.y, pos.z};
-        return BlockClass::newBlock(block, bp, pos.dim);
+        auto& block = lc->getBlock(
+            ChunkBlockPos{
+                static_cast<uchar>(pos.x & 0xf),
+                ChunkLocalHeight{static_cast<short>(pos.y - minHeight)},
+                static_cast<uchar>(pos.z & 0xf)
+            }
+        );
+        return BlockClass::newBlock(block, pos.getBlockPos(), pos.dim);
     }
-    CATCH("Fail in GetBlock!")
+    CATCH_AND_THROW
 }
 
-Local<Value> McClass::setBlock(const Arguments& args) {
+Local<Value> McClass::setBlock(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 2);
 
     try {
@@ -494,21 +499,16 @@ Local<Value> McClass::setBlock(const Arguments& args) {
                 // IntPos
                 IntPos* posObj = IntPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
-                else {
-                    pos   = *posObj;
-                    block = args[1];
-                }
+                pos   = static_cast<IntVec4>(*posObj);
+                block = args[1];
             } else if (IsInstanceOf<FloatPos>(args[0])) {
                 // FloatPos
                 FloatPos* posObj = FloatPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
-                else {
-                    pos   = posObj->toIntVec4();
-                    block = args[1];
-                }
+                pos   = posObj->toIntVec4();
+                block = args[1];
             } else {
-                LOG_WRONG_ARG_TYPE(__FUNCTION__);
-                return Local<Value>();
+                throw WrongArgTypeException(__FUNCTION__);
             }
         } else if (args.size() == 5 || args.size() == 6) {
             // Number Pos
@@ -529,41 +529,63 @@ Local<Value> McClass::setBlock(const Arguments& args) {
                 tileData = args[5].asNumber().toInt32();
             }
         } else {
-            LOG_WRONG_ARGS_COUNT(__FUNCTION__);
-            return Local<Value>();
+            throw WrongArgsCountException(__FUNCTION__);
         }
 
         if (block.isString()) {
-            optional_ref<const Block> bl = Block::tryGetFromRegistry(block.asString().toString(), tileData);
+            optional_ref<Block const> bl =
+                Block::tryGetFromRegistry(HashedString(block.asString().toString()), tileData);
             if (!bl.has_value()) {
                 return Boolean::newBoolean(false);
             }
-            BlockSource& bs = ll::service::getLevel()->getDimension(pos.dim)->getBlockSourceFromMainChunkSource();
-            return Boolean::newBoolean(bs.setBlock(pos.getBlockPos(), bl, 3, nullptr, nullptr));
-        } else if (IsInstanceOf<NbtCompoundClass>(block)) {
+            BlockSource& bs =
+                ll::service::getLevel()->getDimension(pos.dim).lock()->getBlockSourceFromMainChunkSource();
+            return Boolean::newBoolean(bs.setBlock(
+                pos.getBlockPos(),
+                bl,
+                3,
+                nullptr,
+                nullptr,
+                BlockChangeContext(StatelessBlockChangeContext::Commands)
+            ));
+        }
+        if (IsInstanceOf<NbtCompoundClass>(block)) {
             // Nbt
             auto                      nbt = NbtCompoundClass::extract(block);
-            optional_ref<const Block> bl  = Block::tryGetFromRegistry(*nbt);
+            optional_ref<Block const> bl  = Block::tryGetFromRegistry(*nbt);
             if (!bl.has_value()) {
                 return Boolean::newBoolean(false);
             }
-            BlockSource& bs = ll::service::getLevel()->getDimension(pos.dim)->getBlockSourceFromMainChunkSource();
-            return Boolean::newBoolean(bs.setBlock(pos.getBlockPos(), bl, 3, nullptr, nullptr));
-        } else {
-            // other block object
-            Block const* bl = BlockClass::extract(block);
-            if (!bl) {
-                LOG_WRONG_ARG_TYPE(__FUNCTION__);
-                return Local<Value>();
-            }
-            BlockSource& bs = ll::service::getLevel()->getDimension(pos.dim)->getBlockSourceFromMainChunkSource();
-            return Boolean::newBoolean(bs.setBlock(pos.getBlockPos(), *bl, 3, nullptr, nullptr));
+            BlockSource& bs =
+                ll::service::getLevel()->getDimension(pos.dim).lock()->getBlockSourceFromMainChunkSource();
+            return Boolean::newBoolean(bs.setBlock(
+                pos.getBlockPos(),
+                bl,
+                3,
+                nullptr,
+                nullptr,
+                BlockChangeContext(StatelessBlockChangeContext::Commands)
+            ));
         }
+        // other block object
+        Block const* bl = BlockClass::extract(block);
+        if (!bl) {
+            throw WrongArgTypeException(__FUNCTION__);
+        }
+        BlockSource& bs = ll::service::getLevel()->getDimension(pos.dim).lock()->getBlockSourceFromMainChunkSource();
+        return Boolean::newBoolean(bs.setBlock(
+            pos.getBlockPos(),
+            *bl,
+            3,
+            nullptr,
+            nullptr,
+            BlockChangeContext(StatelessBlockChangeContext::Commands)
+        ));
     }
-    CATCH("Fail in SetBlock!")
+    CATCH_AND_THROW
 }
 
-Local<Value> McClass::spawnParticle(const Arguments& args) {
+Local<Value> McClass::spawnParticle(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 2)
 
     try {
@@ -578,24 +600,16 @@ Local<Value> McClass::spawnParticle(const Arguments& args) {
                 // IntPos
                 IntPos* posObj = IntPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
-                else {
-                    pos.x   = posObj->x;
-                    pos.y   = posObj->y;
-                    pos.z   = posObj->z;
-                    pos.dim = posObj->dim;
-                    type    = args[1];
-                }
+                pos  = *posObj;
+                type = args[1];
             } else if (IsInstanceOf<FloatPos>(args[0])) {
                 // FloatPos
                 FloatPos* posObj = FloatPos::extractPos(args[0]);
                 if (posObj->dim < 0) return Boolean::newBoolean(false);
-                else {
-                    pos  = *posObj;
-                    type = args[1];
-                }
+                pos  = static_cast<FloatVec4>(*posObj);
+                type = args[1];
             } else {
-                LOG_WRONG_ARG_TYPE(__FUNCTION__);
-                return Local<Value>();
+                throw WrongArgTypeException(__FUNCTION__);
             }
         } else if (args.size() == 5) {
             // Number Pos
@@ -613,16 +627,15 @@ Local<Value> McClass::spawnParticle(const Arguments& args) {
             };
             type = args[4];
         } else {
-            LOG_WRONG_ARGS_COUNT(__FUNCTION__);
-            return Local<Value>();
+            throw WrongArgsCountException(__FUNCTION__);
         }
 
         ll::service::getLevel()->spawnParticleEffect(
             type.asString().toString(),
             pos.getVec3(),
-            ll::service::getLevel()->getDimension(pos.dim).get()
+            ll::service::getLevel()->getDimension(pos.dim).lock().get()
         );
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in SpawnParticle!")
+    CATCH_AND_THROW
 }

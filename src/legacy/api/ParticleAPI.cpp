@@ -4,7 +4,11 @@
 #include "ParticleAPI.h"
 
 #include "McAPI.h"
-#include "mc/deps/core/math/Color.h"
+#include "ll/api/service/Bedrock.h"
+#include "mc/network/packet/SpawnParticleEffectPacket.h"
+#include "mc/world/actor/player/Player.h"
+#include "mc/world/level/Level.h"
+#include "mc/world/level/dimension/Dimension.h"
 
 #define GETVEC3(v, d, u)                                                                                               \
     if (IsInstanceOf<IntPos>(u)) {                                                                                     \
@@ -17,87 +21,83 @@
         v         = Vec3(pos2->x, pos2->y, pos2->z);                                                                   \
         d         = pos2->dim;                                                                                         \
     } else {                                                                                                           \
-        LOG_WRONG_ARG_TYPE(__FUNCTION__);                                                                              \
-        return Local<Value>();                                                                                         \
+        throw WrongArgTypeException(__FUNCTION__);                                                                     \
     }
 
 namespace {
 template <typename T>
-std::string fto_string(const T a_value) {
+std::string fto_string(T const a_value) {
     std::ostringstream out;
     out << a_value;
     return out.str();
 }
-ParticleCUI::ColorPalette getColorType(std::string s) {
+ParticleSpawner::ColorPalette getColorType(std::string s) {
     switch (s[0]) {
     case 'B':
-        return ParticleCUI::ColorPalette::BLACK;
+        return ParticleSpawner::ColorPalette::BLACK;
         break;
     case 'I':
-        return ParticleCUI::ColorPalette::INDIGO;
+        return ParticleSpawner::ColorPalette::INDIGO;
         break;
     case 'L':
-        return ParticleCUI::ColorPalette::LAVENDER;
+        return ParticleSpawner::ColorPalette::LAVENDER;
         break;
     case 'T':
-        return ParticleCUI::ColorPalette::TEAL;
+        return ParticleSpawner::ColorPalette::TEAL;
         break;
     case 'C':
-        return ParticleCUI::ColorPalette::COCOA;
+        return ParticleSpawner::ColorPalette::COCOA;
         break;
     case 'D':
-        return ParticleCUI::ColorPalette::DARK;
+        return ParticleSpawner::ColorPalette::DARK;
         break;
     case 'O':
-        return ParticleCUI::ColorPalette::OATMEAL;
+        return ParticleSpawner::ColorPalette::OATMEAL;
         break;
     case 'W':
-        return ParticleCUI::ColorPalette::WHITE;
+        return ParticleSpawner::ColorPalette::WHITE;
         break;
     case 'R':
-        return ParticleCUI::ColorPalette::RED;
+        return ParticleSpawner::ColorPalette::RED;
         break;
     case 'A':
-        return ParticleCUI::ColorPalette::APRICOT;
+        return ParticleSpawner::ColorPalette::APRICOT;
         break;
     case 'Y':
-        return ParticleCUI::ColorPalette::YELLOW;
+        return ParticleSpawner::ColorPalette::YELLOW;
         break;
     case 'G':
-        return ParticleCUI::ColorPalette::GREEN;
+        return ParticleSpawner::ColorPalette::GREEN;
         break;
     case 'V':
-        return ParticleCUI::ColorPalette::VATBLUE;
+        return ParticleSpawner::ColorPalette::VATBLUE;
         break;
     case 'S':
-        return ParticleCUI::ColorPalette::SLATE;
+        return ParticleSpawner::ColorPalette::SLATE;
         break;
     case 'P':
-        return ParticleCUI::ColorPalette::PINK;
+        return ParticleSpawner::ColorPalette::PINK;
         break;
     case 'F':
-        return ParticleCUI::ColorPalette::FAWN;
+        return ParticleSpawner::ColorPalette::FAWN;
         break;
     default:
-        return ParticleCUI::ColorPalette::WHITE;
+        return ParticleSpawner::ColorPalette::WHITE;
         break;
     }
 }
 } // namespace
 
-ParticleSpawner* ParticleSpawner::create(const Arguments& args) {
+ParticleSpawner* ParticleSpawner::create(Arguments const& args) {
     if (args.size() < 3) return nullptr;
     try {
         ParticleSpawner* p = new ParticleSpawner(args.thiz());
-        p->displayRadius   = args[0].asNumber().toInt64();
-        p->highDetial      = args[1].asBoolean().value();
-        p->doubleSide      = args[2].asBoolean().value();
         return p;
     } catch (...) {
         return nullptr;
     }
 }
-Local<Value> McClass::newParticleSpawner(const Arguments& args) {
+Local<Value> McClass::newParticleSpawner(Arguments const& args) {
     auto         size          = args.size();
     unsigned int displayRadius = UINT_MAX;
     bool         highDetial    = true;
@@ -118,215 +118,29 @@ Local<Value> McClass::newParticleSpawner(const Arguments& args) {
     return EngineScope::currentEngine()->newNativeClass<ParticleSpawner>(displayRadius, highDetial, doubleSide);
 }
 
-Local<Value> ParticleSpawner::spawnParticle(const Arguments& args) {
+Local<Value> ParticleSpawner::spawnParticle(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 2);
-    Vec3        pos;
-    int         dimId;
-    std::string particleName;
+    Vec3 pos;
+    int  dimId;
     GETVEC3(pos, dimId, args[0])
     CHECK_ARG_TYPE(args[1], ValueKind::kString);
-    particleName = args[1].asString().toString();
-    ParticleCUI::spawnParticle(pos, particleName, dimId);
+    std::string particleName = args[1].asString().toString();
+    if (auto dim = ll::service::getLevel()->getDimension(dimId).lock()) {
+        dim->forEachPlayer([&](Player const& player) {
+            SpawnParticleEffectPacket pkt(pos, particleName, dimId, std::nullopt);
+            player.sendNetworkPacket(pkt);
+            return true;
+        });
+    }
     return Boolean::newBoolean(true);
 }
-Local<Value> ParticleSpawner::drawPoint(const Arguments& args) {
-    CHECK_ARGS_COUNT(args, 1);
-    Vec3 pos;
-    int  dimId;
-    GETVEC3(pos, dimId, args[0])
-    auto pointSize = ParticleCUI::PointSize::PX4;
+Local<Value> ParticleSpawner::drawPoint(Arguments const& args) { return Boolean::newBoolean(true); }
 
-    if (args.size() > 1) {
-        CHECK_ARG_TYPE(args[1], ValueKind::kNumber);
-        pointSize = static_cast<ParticleCUI::PointSize>(args[1].asNumber().toInt32());
-    }
-    std::string color = "W";
-    if (args.size() > 2) {
-        CHECK_ARG_TYPE(args[2], ValueKind::kString);
-        color = args[2].asString().toString();
-    }
-    ParticleCUI::drawPoint(pos, dimId, pointSize, getColorType(color));
-    return Boolean::newBoolean(true);
-}
-
-Local<Value> ParticleSpawner::drawNumber(const Arguments& args) {
-    CHECK_ARGS_COUNT(args, 2);
-    Vec3 pos;
-    int  dimId;
-    GETVEC3(pos, dimId, args[0])
-    std::string numName;
-    std::string color = "W";
-    if (args.size() > 2) {
-        CHECK_ARG_TYPE(args[2], ValueKind::kString);
-        color = args[2].asString().toString();
-    }
-    if (args[1].getKind() == ValueKind::kNumber) {
-        numName = std::to_string(args[1].asNumber().toInt64());
-    } else if (args[1].getKind() == ValueKind::kString) {
-        numName = args[1].asString().toString();
-    } else {
-        LOG_WRONG_ARG_TYPE(__FUNCTION__);
-        return Local<Value>();
-    }
-    ParticleCUI::spawnParticle(pos, std::string("ll:num") + numName + color, dimId);
-    return Boolean::newBoolean(true);
-}
-Local<Value> ParticleSpawner::drawAxialLine(const Arguments& args) {
-    CHECK_ARGS_COUNT(args, 3);
-    Vec3                   pos;
-    int                    dimId;
-    ParticleCUI::Direction direction;
-    double                 length;
-    GETVEC3(pos, dimId, args[0])
-    CHECK_ARG_TYPE(args[1], ValueKind::kNumber);
-    direction = static_cast<ParticleCUI::Direction>(args[1].asNumber().toInt32());
-    CHECK_ARG_TYPE(args[2], ValueKind::kNumber);
-    length            = args[2].asNumber().toDouble();
-    std::string color = "W";
-    if (args.size() > 3) {
-        CHECK_ARG_TYPE(args[3], ValueKind::kString);
-        color = args[3].asString().toString();
-    }
-    ParticleCUI::drawAxialLine(pos, direction, length, dimId, getColorType(color));
-    return Boolean::newBoolean(true);
-}
-Local<Value> ParticleSpawner::drawOrientedLine(const Arguments& args) {
-    auto size = args.size();
-    CHECK_ARGS_COUNT(args, 2);
-    Vec3   start;
-    Vec3   end;
-    int    dimId1;
-    int    dimId2;
-    auto   lineWidth       = ParticleCUI::PointSize::PX4;
-    double minSpacing      = 1;
-    int    maxParticlesNum = 64;
-    GETVEC3(start, dimId1, args[0])
-    GETVEC3(end, dimId2, args[1])
-    if (dimId1 != dimId2) {
-        LOG_ERROR_WITH_SCRIPT_INFO(__FUNCTION__, "Pos should in the same dimension!");
-        return Local<Value>();
-    }
-
-    if (size > 2) {
-        CHECK_ARG_TYPE(args[2], ValueKind::kNumber);
-        lineWidth = static_cast<ParticleCUI::PointSize>(args[2].asNumber().toInt32());
-    }
-
-    if (size > 3) {
-        CHECK_ARG_TYPE(args[3], ValueKind::kNumber);
-        minSpacing = args[3].asNumber().toDouble();
-    }
-
-    if (size > 4) {
-        CHECK_ARG_TYPE(args[4], ValueKind::kNumber);
-        maxParticlesNum = args[4].asNumber().toInt32();
-    }
-
-    std::string color = "W";
-    if (args.size() > 5) {
-        CHECK_ARG_TYPE(args[5], ValueKind::kString);
-        color = args[5].asString().toString();
-    }
-
-    ParticleCUI::drawOrientedLine(start, end, dimId1, lineWidth, minSpacing, maxParticlesNum, getColorType(color));
-
-    return Boolean::newBoolean(true);
-}
-Local<Value> ParticleSpawner::drawCuboid(const Arguments& args) {
-    auto size = args.size();
-    CHECK_ARGS_COUNT(args, 1);
-    Vec3        min;
-    Vec3        max;
-    int         dimId1;
-    int         dimId2 = -1;
-    std::string color  = "W";
-
-    if (IsInstanceOf<IntPos>(args[0])) {
-        auto pos2 = EngineScope::currentEngine()->getNativeInstance<IntPos>(args[0]);
-        min       = Vec3(pos2->x, pos2->y, pos2->z);
-        dimId1    = pos2->dim;
-    } else if (IsInstanceOf<FloatPos>(args[0])) {
-        auto pos2 = EngineScope::currentEngine()->getNativeInstance<FloatPos>(args[0]);
-        min       = Vec3(pos2->x, pos2->y, pos2->z);
-        dimId1    = pos2->dim;
-    } else {
-        LOG_WRONG_ARG_TYPE(__FUNCTION__);
-        return Local<Value>();
-    }
-    if (size > 1) {
-        if (IsInstanceOf<IntPos>(args[1])) {
-            auto pos2 = EngineScope::currentEngine()->getNativeInstance<IntPos>(args[1]);
-            max       = Vec3(pos2->x, pos2->y, pos2->z) + 1;
-            dimId2    = pos2->dim;
-        } else if (IsInstanceOf<FloatPos>(args[1])) {
-            auto pos2 = EngineScope::currentEngine()->getNativeInstance<FloatPos>(args[1]);
-            max       = Vec3(pos2->x, pos2->y, pos2->z);
-            dimId2    = pos2->dim;
-        } else {
-            max = min + 1;
-            CHECK_ARG_TYPE(args[1], ValueKind::kString);
-            color = args[1].asString().toString();
-        }
-    } else {
-        max = min + 1;
-    }
-
-    if (dimId2 != -1 && dimId1 != dimId2) {
-        LOG_ERROR_WITH_SCRIPT_INFO(__FUNCTION__, "Pos should in the same dimension!");
-        return Local<Value>();
-    }
-
-    if (size > 2) {
-        CHECK_ARG_TYPE(args[2], ValueKind::kString);
-        color = args[2].asString().toString();
-    }
-
-    ParticleCUI::drawCuboid(AABB(min, max), dimId1, getColorType(color));
-
-    return Boolean::newBoolean(true);
-}
-Local<Value> ParticleSpawner::drawCircle(const Arguments& args) {
-    auto size = args.size();
-    CHECK_ARGS_COUNT(args, 3);
-    Vec3                   pos;
-    int                    dimId;
-    ParticleCUI::Direction facing;
-    double                 radius;
-    GETVEC3(pos, dimId, args[0])
-    CHECK_ARG_TYPE(args[1], ValueKind::kNumber);
-    facing = static_cast<ParticleCUI::Direction>(args[1].asNumber().toInt32());
-    CHECK_ARG_TYPE(args[2], ValueKind::kNumber);
-    radius = args[2].asNumber().toDouble();
-
-    auto   lineWidth       = ParticleCUI::PointSize::PX4;
-    double minSpacing      = 1;
-    int    maxParticlesNum = 64;
-
-    if (size > 3) {
-        CHECK_ARG_TYPE(args[3], ValueKind::kNumber);
-        lineWidth = static_cast<ParticleCUI::PointSize>(args[3].asNumber().toInt32());
-    }
-
-    if (size > 4) {
-        CHECK_ARG_TYPE(args[4], ValueKind::kNumber);
-        minSpacing = args[4].asNumber().toDouble();
-    }
-
-    if (size > 5) {
-        CHECK_ARG_TYPE(args[5], ValueKind::kNumber);
-        maxParticlesNum = args[5].asNumber().toInt32();
-    }
-
-    std::string color = "W";
-    if (args.size() > 6) {
-        CHECK_ARG_TYPE(args[6], ValueKind::kString);
-        color = args[6].asString().toString();
-    }
-
-    ParticleCUI::drawCircle(pos, facing, radius, dimId, lineWidth, minSpacing, maxParticlesNum, getColorType(color));
-
-    return Boolean::newBoolean(true);
-}
+Local<Value> ParticleSpawner::drawNumber(Arguments const& args) { return Boolean::newBoolean(true); }
+Local<Value> ParticleSpawner::drawAxialLine(Arguments const& args) { return Boolean::newBoolean(true); }
+Local<Value> ParticleSpawner::drawOrientedLine(Arguments const& args) { return Boolean::newBoolean(true); }
+Local<Value> ParticleSpawner::drawCuboid(Arguments const& args) { return Boolean::newBoolean(true); }
+Local<Value> ParticleSpawner::drawCircle(Arguments const& args) { return Boolean::newBoolean(true); }
 
 ClassDefine<ParticleSpawner> ParticleSpawnerBuilder =
     defineClass<ParticleSpawner>("ParticleSpawner")
@@ -344,7 +158,7 @@ ClassDefine<ParticleSpawner> ParticleSpawnerBuilder =
         .instanceFunction("drawCircle", &ParticleSpawner::drawCircle)
         .build();
 // clang-format off
-ClassDefine<void> ParticleColorBuilder =
+ClassDefine<> ParticleColorBuilder =
     defineClass("ParticleColor")
         .property("Black",    []() { return String::newString("B"); })
         .property("Indigo",   []() { return String::newString("I"); })
@@ -366,7 +180,7 @@ ClassDefine<void> ParticleColorBuilder =
 // clang-format on
 
 // clang-format off
-ClassDefine<void> DirectionBuilder =
+ClassDefine<> DirectionBuilder =
     defineClass("Direction")
         .property("NEG_Y", []() { return Number::newNumber(0); })
         .property("POS_Y", []() { return Number::newNumber(1); })

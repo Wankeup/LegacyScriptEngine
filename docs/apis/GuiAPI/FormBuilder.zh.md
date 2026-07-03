@@ -57,6 +57,35 @@
 2. 如果使用URL路径，那么在这里放入完整的URL即可，形如 `https://www.baidu.com/img/flexible/logo/pc/result.png`
 3. 如果这个按钮你不需要显示图片，那不传入此参数即可
 
+
+#### 向表单内增加标头
+
+`fm.addHeader(text)`
+
+- 参数：
+    - text : `String`  
+      标头内容
+- 返回值：处理完毕的表单对象（便于连锁进行其他操作）
+- 返回值类型：`SimpleForm`
+
+#### 向表单内增加一行文本
+
+`fm.addLabel(text)`
+
+- 参数：
+    - text : `String`  
+      一行文本
+- 返回值：处理完毕的表单对象（便于连锁进行其他操作）
+- 返回值类型：`SimpleForm`
+
+#### 向表单内增加分隔线
+
+`fm.addDivider()`
+
+- 返回值：处理完毕的表单对象（便于连锁进行其他操作）
+- 返回值类型：`SimpleForm`
+
+
 ### 发送表单
 
 最后，在一切就绪之后，你可以将配置好的表单对象发送给玩家，并监听玩家的互动消息  
@@ -64,13 +93,15 @@
 
 对于某个玩家对象`pl`，使用函数：
 
-`pl.sendForm(fm,callback)`
+`pl.sendForm(fm,callback[,forUpdating])`
 
 - 参数：
     - fm : `SimpleForm`  
       配置好的表单对象
     - callback : `Function`  
       玩家与表单元素互动之后被调用的回调函数。
+    - forUpdating : `Boolean`
+      （可选参数，在0.11.0中加入）是否为表单更新，默认值为false，即非表单更新
 - 返回值：发送的表单ID
 - 返回值类型：`Integer`
     - 如果返回值为`Null`，则代表发送失败
@@ -116,6 +147,16 @@ reason可能会是`null`.
 - 返回值：处理完毕的表单对象（便于连锁进行其他操作）
 - 返回值类型：`CustomForm`
 
+#### 向表单内增加标头
+
+`fm.addHeader(text)`
+
+- 参数：
+    - text : `String`  
+      标头内容
+- 返回值：处理完毕的表单对象（便于连锁进行其他操作）
+- 返回值类型：`CustomForm`
+
 #### 向表单内增加一行文本
 
 `fm.addLabel(text)`
@@ -126,9 +167,16 @@ reason可能会是`null`.
 - 返回值：处理完毕的表单对象（便于连锁进行其他操作）
 - 返回值类型：`CustomForm`
 
+#### 向表单内增加分隔线
+
+`fm.addDivider()`
+
+- 返回值：处理完毕的表单对象（便于连锁进行其他操作）
+- 返回值类型：`CustomForm`
+
 #### 向表单内增加一行输入框
 
-`fm.addInput(title[,placeholder,default])`
+`fm.addInput(title[,placeholder,default,tooltip])`
 
 - 参数：
 
@@ -138,24 +186,28 @@ reason可能会是`null`.
       （可选参数）输入框内的提示字符
     - default : `String`  
       （可选参数）输入框中默认存在的内容
+    - tooltip : `String`
+      （可选参数，在0.12.0中加入）提示文本
 - 返回值：处理完毕的表单对象（便于连锁进行其他操作）
 - 返回值类型：`CustomForm`
 
 #### 向表单内增加一行开关选项
 
-`fm.addSwitch(title[,default])`
+`fm.addSwitch(title[,default,tooltip])`
 
 - 参数：
     - title : `String`  
       开关选项描述文本
     - default : `Boolean`  
       （可选参数）开关的默认状态 开 / 关
+    - tooltip : `String`
+      （可选参数，在0.12.0中加入）提示文本
 - 返回值：处理完毕的表单对象（便于连锁进行其他操作）
 - 返回值类型：`CustomForm`
 
 #### 向表单内增加一行下拉菜单
 
-`fm.addDropdown(title,items[,default])`
+`fm.addDropdown(title,items[,default,tooltip])`
 
 - 参数：
 
@@ -168,12 +220,15 @@ reason可能会是`null`.
     - default : `Integer`  
       （可选参数）下拉菜单默认选中的列表项序号。  
       序号从0开始编号。默认为0，即默认选中列表的第一项
+
+    - tooltip : `String`
+      （可选参数，在0.12.0中加入）提示文本
 - 返回值：处理完毕的表单对象（便于连锁进行其他操作）
 - 返回值类型：`CustomForm`
 
 #### 向表单内增加一行游标滑块
 
-`fm.addSlider(title,min,max[,step,default])`
+`fm.addSlider(title,min,max[,step,default,tooltip])`
 
 - 参数：
     - title : `String`  
@@ -187,12 +242,14 @@ reason可能会是`null`.
     - default : `Integer`  
       （可选参数）游标滑块默认初始格数，数值必须在最小和最大格数之间。  
       默认为0，即滑块位于滑块行的开头
+    - tooltip : `String`
+      （可选参数，在0.12.0中加入）提示文本
 - 返回值：处理完毕的表单对象（便于连锁进行其他操作）
 - 返回值类型：`CustomForm`
 
 #### 向表单内增加一行步进滑块
 
-`fm.addStepSlider(title,items[,default])`
+`fm.addStepSlider(title,items[,default,tooltip])`
 
 - 参数：
     - title : `String`  
@@ -204,6 +261,22 @@ reason可能会是`null`.
     - default : `Integer`  
       （可选参数）步进滑块默认初始选项。序号从0开始编号  
       默认为0，即滑块位于滑块行的开头
+
+    - tooltip : `String`
+      （可选参数，在0.12.0中加入）提示文本
+- 返回值：处理完毕的表单对象（便于连锁进行其他操作）
+- 返回值类型：`CustomForm`
+
+#### 设置提交按钮的文本
+
+!!! warning
+    此API仅在0.11.0及更高版本中可用。
+
+`fm.setSubmitButton(text)`
+
+- 参数：
+    - text : `String`  
+      提交按钮的文本
 - 返回值：处理完毕的表单对象（便于连锁进行其他操作）
 - 返回值类型：`CustomForm`
 
@@ -214,13 +287,15 @@ reason可能会是`null`.
 
 对于某个玩家对象`pl`，使用函数：
 
-`pl.sendForm(fm,callback)`
+`pl.sendForm(fm,callback[,forUpdating])`
 
 - 参数：
     - fm : `CustomForm`  
       配置好的自定义表单对象
     - callback : `Function`  
       玩家提交表单之后被调用的回调函数。
+    - forUpdating : `Boolean`
+      （可选参数，在0.11.0中加入）是否为表单更新，默认值为false，即非表单更新
 - 返回值：发送的表单ID
 - 返回值类型：`Integer`
     - 如果返回值为`Null`，则代表发送失败

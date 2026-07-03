@@ -1,0 +1,19 @@
+#include "BlockHelper.h"
+
+#include "mc/world/level/block/Block.h"
+#include "mc/world/level/dimension/DimensionHeightRange.h"
+
+namespace lse::api {
+bool BlockHelper::isValidHeight(WeakRef<Dimension> const& dimension, std::variant<int, float> height) {
+    if (auto dim = dimension.lock()) {
+        if (std::holds_alternative<int>(height)) {
+            int y = std::get<int>(height);
+            return dim->mHeightRange->mMin <= y && dim->mHeightRange->mMax >= y;
+        }
+        float y = std::get<float>(height);
+        return dim->mHeightRange->mMin <= y && dim->mHeightRange->mMax >= y;
+    }
+
+    return false;
+}
+} // namespace lse::api

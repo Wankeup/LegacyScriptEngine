@@ -1,8 +1,9 @@
-#include "api/APIHelp.h"
-#include "engine/EngineManager.h"
+#pragma once
+#include "legacy/api/APIHelp.h"
 
-#include <list>
+#include <Windows.h>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
@@ -27,12 +28,10 @@ struct MessageHandlers {
 // 全局共享数据
 struct GlobalDataType {
     // 引擎管理器表
-    std::shared_mutex        engineListLock;
-    std::list<ScriptEngine*> globalEngineList;
-
-    // 注册过的命令
-    std::unordered_map<std::string, std::string> playerRegisteredCmd;
-    std::unordered_map<std::string, std::string> consoleRegisteredCmd;
+    std::mutex                                                               engineListLock;
+    std::vector<std::shared_ptr<ScriptEngine>>                               globalEngineList;
+    std::shared_mutex                                                         engineSnapshotLock;
+    std::shared_ptr<std::vector<std::shared_ptr<ScriptEngine>>>              globalEngineSnapshot;
 
     // 导出函数表
     std::unordered_map<std::string, ExportedFuncData> exportedFuncs;

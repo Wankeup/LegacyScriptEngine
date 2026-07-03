@@ -1,19 +1,12 @@
-#include "engine/LocalShareData.h"
-
-#include <mutex>
+#include "legacy/engine/LocalShareData.h"
 
 // DLL本地共享数据
-LocalDataType* localShareData;
-
-// 命令延迟注册队列
-std::vector<RegCmdQueue> toRegCmdQueue;
+std::unique_ptr<LocalDataType> localShareData = nullptr;
 
 // 线程池
 ll::thread::ThreadPoolExecutor pool("LSE_POOL", LLSE_POOL_THREAD_COUNT);
 
-// std::mutex messageLoopLock;
-
 void InitLocalShareData() {
     srand(clock());
-    localShareData = new LocalDataType;
+    localShareData = std::make_unique<LocalDataType>();
 }

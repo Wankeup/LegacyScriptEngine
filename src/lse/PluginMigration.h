@@ -1,9 +1,9 @@
 #pragma once
 
-#include "PluginManager.h"
+#include "lse/PluginManager.h"
 
 namespace lse {
 
-auto migratePlugins(const PluginManager& pluginManager) -> void;
+auto migratePlugins(PluginManager const& pluginManager) -> void;
 
 } // namespace lse

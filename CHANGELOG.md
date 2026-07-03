@@ -7,6 +7,465 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-04-17
+
+### Fixed
+
+- Fixed deadlock in some cases caused by `loadEngineSnapshot()` @ShrBox
+
+## [0.18.1] - 2026-04-13
+
+### Fixed
+
+- Added `onPlayerCmd` and `onConsoleCmd` event that was accidentally deleted.
+
+## [0.18.0] - 2026-04-07
+
+### Changed
+
+- Supported LeviLamina 26.10.*
+
+## [0.17.13] - 2026-04-07
+
+### Fixed
+
+- Fixed potential permission issue for LegacyCommandAPI
+
+## [0.17.12] - 2026-04-01
+
+### Changed
+
+- Bumped ScriptX to 2026.4.1
+- Bumped quickjs-ng to v0.13.0
+- Bumped lua to v5.5.0
+
+### Fixed
+
+- Fixed memory leak issue in Python engine [#343]
+
+## [0.17.11] - 2026-04-01
+
+### Changed
+
+- Replaced legacy CommandCompatibleAPI(fake command based on event) with LegacyCommandAPI(real registered command)
+- Improved translations
+
+## [0.17.10] - 2026-03-31
+
+### Changed
+
+- Added globalEngineSnapshot to improve performance
+
+## [0.17.9] - 2026-03-30
+
+### Changed
+
+- **Breaking Change**: Exceptions will be thrown to scripts directly when API calls fail, instead of returning null or
+  undefined. This may cause some old scripts to break if they don't handle exceptions properly. @zimuya4153 @ShrBox
+
+### Fixed
+
+- Fixed the nbt get @zimuya4153
+- Fixed TextPacket [#358] @ShrBox
+
+## [0.17.8] - 2026-03-24
+
+### Fixed
+
+- Fixed the container close event [#294] @zimuya4153
+- Fixed Node.js installation for tooth.json in newer version of lip
+
+## [0.17.7] - 2026-03-08
+
+### Changed
+
+- Update 7-zip tooth url in tooth.json
+
+## [0.17.6] - 2026-03-07
+
+### Changed
+
+- Rollbacked LightWebSocketClient to v1.0.1
+
+## [0.17.5] - 2026-02-27
+
+### Fixed
+
+- Fixed crash on stop for Node.js engine
+- Fixed item.maxDamage [#349] (#354) @LWenK
+
+## [0.17.4] - 2026-02-24
+
+### Changed
+
+- Bumped LightWebSocketClient to v1.0.2 [#353]
+
+## [0.17.3] - 2026-02-24
+
+### Added
+
+- Added `onPortalTrySpawn` event [#318]/[#306] @yangyangzhong82
+- Added `onPortalTrySpawnPigZombie` event @yangyangzhong82
+- Added `onDispenseItem` event [#318] @yangyangzhong82
+
+### Fixed
+
+- Fixed crash on stop for Node.js engine
+
+## [0.17.2] - 2026-02-04
+
+### Fixed
+
+- Fixed ScriptEngine lifecycle
+
+## [0.17.1] - 2026-01-27
+
+### Fixed
+
+- Fixed `mc.newItem` [#348]
+
+## [0.17.0] - 2026-01-25
+
+### Added
+
+- Added client support
+
+### Changed
+
+- Supported LeviLamina 1.9.0
+- Replace int with CommandPermissionLevel for debugCommandLevel
+
+## [0.17.0-rc.2] - 2026-01-19
+
+### Changed
+
+- Supported LeviLamina 1.8.0-rc.2
+- Added client support
+- Replace int with CommandPermissionLevel for debugCommandLevel
+
+## [0.16.8] - 2026-01-14
+
+### Added
+
+- Added debugCommandLevel config @ShrBox
+- Fixed onLiquidFlow @killcerr
+
+## [0.16.7] - 2026-01-13
+
+### Changed
+
+- Used shared_ptr to manage script::ScriptEngine @ShrBox
+
+## [0.16.6] - 2026-01-13
+
+### Changed
+
+- No need to copy raw pointer of nbt @ShrBox
+- Optimized ItemAPI
+- Added `std::monostate` to `DB::Any` for preventing some exceptions @ShrBox
+- Avoided unnecessary `new` and raw pointer @ShrBox
+
+### Fixed
+
+- Fixed potential memory leak in `_extractValue(RemoteCall::ItemType&& v)` of RemoteCallAPI @ShrBox
+
+## [0.16.5] - 2026-01-12
+
+### Changed
+
+- Stored CommandOutput and CommandOrigin as shared_ptr for asynchronous command processing
+
+## [0.16.4] - 2026-01-12
+
+### Fixed
+
+- Fixed mysql query @ShrBox
+- Fixed memory leak in BinaryStream @ShrBox
+
+## [0.16.3] - 2026-01-12
+
+### Changed
+
+- Optimized FileClass constructor @ShrBox
+- Optimized SimpleIni creation @ShrBox
+
+### Fixed
+
+- Fixed several potential memory leak issues(FileSystemAPI, InternationalAPI, SystemAPI, IniHelper) @ShrBox
+
+## [0.16.2] - 2026-01-11
+
+### Changed
+
+- Bumped QuickJs-Ng to 0.11.0 @Yushu2606
+- Bumped Python to 3.12.10 @Yushu2606
+
+### Fixed
+
+- Fixed data.toMD5 & data.toSHA1 [#339] @ShrBox
+- Fixed memory leak in network.httpGet & network.httpPost @ShrBox
+
+## [0.16.1] - 2025-11-12
+
+### Added
+
+- Added the maxCount attribute to the Item class @zimuya4153
+
+### Fixed
+
+- Fixed the Vec3 parameter of the command @zimuya4153
+- Fixed the objectificationMoneyHistory function of money [#332] @zimuya4153
+- Fixed the Player::giveItem method [#326] @zimuya4153
+- Fixed the NbtCompound::toObject method [#315] [#317] @zimuya4153
+- Fixed the syntax error output of runcmdEx @zimuya4153
+- Fixed the asynchronous output of commands [#322] @zimuya4153
+- Fixed the hurt method of the Actor class [#330] @zimuya4153
+
+## [0.16.0] - 2025-11-04
+
+### Changed
+
+- Supported LeviLamina 1.7.0 @ShrBox
+
+## [0.15.0] - 2025-10-04
+
+### Changed
+
+- Supported LeviLamina 1.6.0 @ShrBox
+- Removed LegacyParticleAPI
+
+## [0.14.0] - 2025-09-23
+
+### Changed
+
+- Supported LeviLamina 1.5.0 @ShrBox
+
+### Fixed
+
+- Fixed logger.setFile [#323] @ShrBox
+
+## [0.13.2] - 2025-08-07
+
+### Fixed
+
+- Fixed Node engine installation issue
+- Fixed the simulated player using Player::getLangCode (#316) @zimuya4153
+
+## [0.13.1] - 2025-07-18
+
+### Fixed
+
+- Fixed 7-zip tooth [#309]
+- Fixed mc.getEntities [#310]
+
+## [0.13.0] - 2025-07-15
+
+### Changed
+
+- Supported LeviLamina 1.4.0 @xiaoqch
+
+### Fixed
+
+- Ensured onUnload is invoked prior to engine cleanup @xiaoqch
+
+## [0.12.1] - 2025-07-13
+
+### Added
+
+- Implemented the internal support for event cancellation [#285] @xiaoqch
+- Added file version info @xiaoqch
+
+### Changed
+
+- Refactored npm command, revert event commit @xiaoqch
+
+### Fixed
+
+- Fixed entity.setMaxHealth [#291] @xiaoqch
+- Fixed onSetArmor, onEffectAdded and onEffectRemoved [#299] @xiaoqch
+- Fixed npm command @xiaoqch
+- Fixed unload crash [#300] @xiaoqch
+- Disabled input in console npm command @xiaoqch
+- Fixed old nodejs addon load error [#9] @xiaoqch
+- Ensured microtasks are executed automatically [#10] @xiaoqch
+- Fixed ll.onUnload [#303] @xiaoqch
+- Fixed onServerStarted event for nodejs engine @xiaoqch
+- Ensured mods are unloaded when the server stops [#303] @xiaoqch
+- Added missing enter scope on mods unload @xiaoqch
+- Fixed ll.isRelease @xiaoqch
+
+## [0.12.0] - 2025-06-12
+
+### Added
+
+- Added tooltip support for CustomFormBuilder @xiaoqch
+
+### Changed
+
+- Removed obsolete GUI logic @xiaoqch
+- Improved PlayerClass::talkAs (#287) @killcerr
+
+### Fixed
+
+- Fixed Player.transServer @xiaoqch
+- Fixed data.toMD5 and data.toSHA1 @xiaoqch
+- Fixed simulateLookAt [#278] @ShrBox
+
+## [0.11.3] - 2025-06-03
+
+### Added
+
+- Added onEndermanTakeBlock event [#233] @zimuya4153
+
+## [0.11.2] - 2025-06-01
+
+### Fixed
+
+- Fixed onPlaceBlock [#242] @ShrBox
+
+## [0.11.1] - 2025-05-31
+
+### Added
+
+- Added ll.pluginsRoot and ll.getCurrentPluginInfo apis @xiaoqch
+
+### Changed
+
+- Updated LeviLamina to 1.2.0
+- Updated ScriptX to fix v8 backend issue [#277] @ShrBox
+- Refactored onAte event (#279) @killcerr
+
+### Fixed
+
+- Fixed compatibility with custom mods directory @xiaoqch
+- Fixed ll.getPluginInfo fails to get current plugin info during loading @xiaoqch
+
+## [0.11.0] - 2025-05-20
+
+### Changed
+
+- Refactored GUI API
+- Support LeviLamina 1.2.0-rc.2
+
+### Fixed
+
+- Fixed ll.import and ll.export for nodejs engine (#270) @xiaoqch
+- Fixed ang.toFacing (#271) @xiaoqch
+- Fixed entity.speed and player.speed (#184) @xiaoqch
+- Fixed mc.deletePlayerNbt @xiaoqch
+- Improved logging in NodeJs plugin loading @xiaoqch
+- Fixed return type for invalid dimension in mc.getBlock @xiaoqch
+
+## [0.10.9] - 2025-06-01
+
+### Added
+
+- Added ll.pluginsRoot and ll.getCurrentPluginInfo apis @xiaoqch
+
+### Changed
+
+- Updated ScriptX to fix v8 backend issue [#277] @ShrBox
+- Refactored onAte event (#279) @killcerr
+
+### Fixed
+
+- Fixed compatibility with custom mods directory @xiaoqch
+- Fixed ll.getPluginInfo fails to get current plugin info during loading @xiaoqch
+- Fixed onPlaceBlock [#242] @ShrBox
+
+## [0.10.8] - 2025-05-22
+
+### Changed
+
+- Update LeviLamina to 1.1.2
+
+### Fixed
+
+- Fixed mc.getPlayerScore [#273]
+- Fixed network.httpGet [#269]
+
+## [0.10.7] - 2025-05-20
+
+### Fixed
+
+- Fixed ll.import and ll.export for nodejs engine (#270) @xiaoqch
+- Fixed ang.toFacing (#271) @xiaoqch
+- Fixed entity.speed and player.speed (#184) @xiaoqch
+- Fixed mc.deletePlayerNbt @xiaoqch
+- Improved logging in NodeJs plugin loading @xiaoqch
+- Fixed return type for invalid dimension in mc.getBlock @xiaoqch
+
+## [0.10.6] - 2025-04-27
+
+### Added
+
+- Added Node.js backend esm support (#268) @engsr6982
+
+### Fixed
+
+- Fixed Direction enum @xiaoqch
+
+## [0.10.5] - 2025-04-13
+
+### Fixed
+
+- Fixe param of onBlockExploded event callback [#264] @xiaoqch
+
+## [0.10.4] - 2025-04-12
+
+### Fixed
+
+- Fixed mc.getBlock [#261] @xiaoqch
+
+## [0.10.3] - 2025-03-23
+
+### Fixed
+
+- Fixed plugin executeOnModUnload @zimuya4153
+- Fixed output of plugin load error @xiaoqch
+- Fixed system.cmd and system.newProcess callback [#258] @xiaoqch
+
+## [0.10.2] - 2025-03-16
+
+### Changed
+
+- Synced [ScriptX](https://github.com/LiteLDev/ScriptX) with upstream
+- Delay onServerStarted for 1 tick to fix compatibility with old plugins(e.g. LLSE-FakePlayer)
+- Show error when loading plugins failed [#240] @xiaoqch
+
+### Fixed
+
+- Fixed DefaultDataLoadHelper
+
+## [0.10.0] - 2025-03-14
+
+### Changed
+
+- Upgrade tooth.json to manifest v3
+
+### Fixed
+
+- Fixed HttpServer crash [#249] @xiaoqch
+- Fixed mc.getBlock [#252] @xiaoqch
+- Fixed Player.setCurrentExperience [#243] @xiaoqch
+- Fixed getAllTags [#251] @ShrBox
+
+## [0.10.0-rc.2] - 2025-03-02
+
+### Fixed
+
+- Fixed onNpcCmd event
+- Use coro for delay command registration instead of ServerStartedEvent to fix command registration in onServerStarted
+  event
+
+## [0.10.0-rc.1] - 2025-03-01
+
+### Changed
+
+- Adapted to LeviLamina 1.1.0(MCBE 1.21.60.10)
+- Disabled onNpcCmd temporarily because it is broken
+- Not delay onServerStartedEvent and command registration for compatibility with LeviStone
+
 ## [0.9.7] - 2025-02-10
 
 ### Added
@@ -686,6 +1145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - First release.
 
+[#9]: https://github.com/LiteLDev/LegacyScriptEngine/issues/9
+[#10]: https://github.com/LiteLDev/LegacyScriptEngine/issues/10
 [#31]: https://github.com/LiteLDev/LegacyScriptEngine/issues/31
 [#35]: https://github.com/LiteLDev/LegacyScriptEngine/issues/35
 [#37]: https://github.com/LiteLDev/LegacyScriptEngine/issues/37
@@ -757,9 +1218,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#226]: https://github.com/LiteLDev/LegacyScriptEngine/issues/226
 [#227]: https://github.com/LiteLDev/LegacyScriptEngine/issues/227
 [#231]: https://github.com/LiteLDev/LegacyScriptEngine/issues/231
+[#233]: https://github.com/LiteLDev/LegacyScriptEngine/issues/233
 [#236]: https://github.com/LiteLDev/LegacyScriptEngine/issues/236
+[#240]: https://github.com/LiteLDev/LegacyScriptEngine/issues/240
+[#242]: https://github.com/LiteLDev/LegacyScriptEngine/issues/242
+[#243]: https://github.com/LiteLDev/LegacyScriptEngine/issues/243
+[#249]: https://github.com/LiteLDev/LegacyScriptEngine/issues/249
+[#251]: https://github.com/LiteLDev/LegacyScriptEngine/issues/251
+[#252]: https://github.com/LiteLDev/LegacyScriptEngine/issues/252
+[#258]: https://github.com/LiteLDev/LegacyScriptEngine/issues/258
+[#261]: https://github.com/LiteLDev/LegacyScriptEngine/issues/261
+[#264]: https://github.com/LiteLDev/LegacyScriptEngine/issues/264
+[#269]: https://github.com/LiteLDev/LegacyScriptEngine/issues/269
+[#273]: https://github.com/LiteLDev/LegacyScriptEngine/issues/273
+[#277]: https://github.com/LiteLDev/LegacyScriptEngine/issues/277
+[#278]: https://github.com/LiteLDev/LegacyScriptEngine/issues/278
+[#285]: https://github.com/LiteLDev/LegacyScriptEngine/issues/285
+[#291]: https://github.com/LiteLDev/LegacyScriptEngine/issues/291
+[#294]: https://github.com/LiteLDev/LegacyScriptEngine/issues/294
+[#299]: https://github.com/LiteLDev/LegacyScriptEngine/issues/299
+[#300]: https://github.com/LiteLDev/LegacyScriptEngine/issues/300
+[#303]: https://github.com/LiteLDev/LegacyScriptEngine/issues/303
+[#306]: https://github.com/LiteLDev/LegacyScriptEngine/issues/306
+[#309]: https://github.com/LiteLDev/LegacyScriptEngine/issues/309
+[#310]: https://github.com/LiteLDev/LegacyScriptEngine/issues/310
+[#315]: https://github.com/LiteLDev/LegacyScriptEngine/issues/315
+[#317]: https://github.com/LiteLDev/LegacyScriptEngine/issues/317
+[#318]: https://github.com/LiteLDev/LegacyScriptEngine/issues/318
+[#322]: https://github.com/LiteLDev/LegacyScriptEngine/issues/322
+[#323]: https://github.com/LiteLDev/LegacyScriptEngine/issues/323
+[#326]: https://github.com/LiteLDev/LegacyScriptEngine/issues/326
+[#330]: https://github.com/LiteLDev/LegacyScriptEngine/issues/330
+[#332]: https://github.com/LiteLDev/LegacyScriptEngine/issues/332
+[#339]: https://github.com/LiteLDev/LegacyScriptEngine/issues/339
+[#343]: https://github.com/LiteLDev/LegacyScriptEngine/issues/343
+[#348]: https://github.com/LiteLDev/LegacyScriptEngine/issues/348
+[#349]: https://github.com/LiteLDev/LegacyScriptEngine/issues/349
+[#353]: https://github.com/LiteLDev/LegacyScriptEngine/issues/353
+[#358]: https://github.com/LiteLDev/LegacyScriptEngine/issues/358
 
-[Unreleased]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.9.7...HEAD
+[Unreleased]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.18.2...HEAD
+[0.18.2]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.18.1...v0.18.2
+[0.18.1]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.18.0...v0.18.1
+[0.18.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.13...v0.18.0
+[0.17.13]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.12...v0.17.13
+[0.17.12]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.11...v0.17.12
+[0.17.11]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.10...v0.17.11
+[0.17.10]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.9...v0.17.10
+[0.17.9]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.8...v0.17.9
+[0.17.8]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.7...v0.17.8
+[0.17.7]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.6...v0.17.7
+[0.17.6]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.5...v0.17.6
+[0.17.5]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.4...v0.17.5
+[0.17.4]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.3...v0.17.4
+[0.17.3]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.2...v0.17.3
+[0.17.2]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.1...v0.17.2
+[0.17.1]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.0...v0.17.1
+[0.17.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.17.0-rc.2...v0.17.0
+[0.17.0-rc.2]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.16.8...v0.17.0-rc.2
+[0.16.8]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.16.7...v0.16.8
+[0.16.7]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.16.6...v0.16.7
+[0.16.6]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.16.5...v0.16.6
+[0.16.5]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.16.4...v0.16.5
+[0.16.4]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.16.3...v0.16.4
+[0.16.3]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.16.2...v0.16.3
+[0.16.2]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.16.1...v0.16.2
+[0.16.1]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.16.0...v0.16.1
+[0.16.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.15.0...v0.16.0
+[0.15.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.13.2...v0.14.0
+[0.13.2]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.13.1...v0.13.2
+[0.13.1]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.13.0...v0.13.1
+[0.13.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.12.1...v0.13.0
+[0.12.1]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.12.0...v0.12.1
+[0.12.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.11.3...v0.12.0
+[0.11.3]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.11.2...v0.11.3
+[0.11.2]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.11.1...v0.11.2
+[0.11.1]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.11.0...v0.11.1
+[0.11.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.10.9...v0.11.0
+[0.10.9]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.10.8...v0.10.9
+[0.10.8]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.10.7...v0.10.8
+[0.10.7]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.10.6...v0.10.7
+[0.10.6]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.10.5...v0.10.6
+[0.10.5]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.10.4...v0.10.5
+[0.10.4]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.10.3...v0.10.4
+[0.10.3]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.10.2...v0.10.3
+[0.10.2]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.10.0...v0.10.2
+[0.10.0]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.10.0-rc.2...v0.10.0
+[0.10.0-rc.2]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.10.0-rc.1...v0.10.0-rc.2
+[0.10.0-rc.1]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.9.7...v0.10.0-rc.1
 [0.9.7]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.9.6...v0.9.7
 [0.9.6]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/LiteLDev/LegacyScriptEngine/compare/v0.9.4...v0.9.5

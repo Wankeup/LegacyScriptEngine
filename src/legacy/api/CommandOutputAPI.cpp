@@ -1,6 +1,10 @@
-#include "api/CommandOutputAPI.h"
+#include "legacy/api/CommandOutputAPI.h"
 
+#include "ll/api/service/Bedrock.h"
 #include "mc/server/commands/CommandOutputMessageType.h"
+#include "mc/server/commands/CommandPropertyBag.h"
+#include "mc/server/commands/MinecraftCommands.h"
+#include "mc/world/Minecraft.h"
 
 //////////////////// Class Definition ////////////////////
 
@@ -20,47 +24,42 @@ ClassDefine<CommandOutputClass> CommandOutputClassBuilder =
 
 //////////////////// APIs ////////////////////
 
-CommandOutputClass::CommandOutputClass(CommandOutput* p)
+CommandOutputClass::CommandOutputClass(
+    std::shared_ptr<CommandOutput> const&       out,
+    std::shared_ptr<CommandOrigin const> const& ori
+)
 : ScriptClass(ScriptClass::ConstructFromCpp<CommandOutputClass>{}),
-  ptr(p) {};
+  output(out),
+  origin(ori),
+  isAsync(false) {};
 
-Local<Object> CommandOutputClass::newCommandOutput(CommandOutput* p) {
-    auto newp = new CommandOutputClass(p);
-    return newp->getScriptObject();
-}
-
-// MCAPI bool empty() const;
 Local<Value> CommandOutputClass::empty() {
     try {
-        return Boolean::newBoolean(get()->hasErrorMessage());
+        return Boolean::newBoolean(get()->mMessages.empty());
     }
-    CATCH("Fail in empty!");
+    CATCH_AND_THROW
 }
 
-// MCAPI int getSuccessCount() const;
 Local<Value> CommandOutputClass::getSuccessCount() {
     try {
-        return Number::newNumber(get()->getSuccessCount());
+        return Number::newNumber(static_cast<int64_t>(get()->mSuccessCount));
     }
-    CATCH("Fail in getSuccessCount!");
+    CATCH_AND_THROW
 };
 
-// MCAPI enum CommandOutputType getType() const;
 // Local<Value> CommandOutputClass::getType()
 //{
 //     try
 //     {
 //         return String::newString(magic_enum::enum_name(get()->getType()));
 //     }
-//     CATCH("Fail in getType!");
+//     CATCH_AND_THROW
 // };
 
-// MCAPI void success(std::string const&, std::vector<class
-// CommandOutputParameter> const&); MCAPI void success();
-Local<Value> CommandOutputClass::success(const Arguments& args) {
+Local<Value> CommandOutputClass::success(Arguments const& args) {
     try {
         if (args.size() == 0) {
-            get()->success();
+            ++get()->mSuccessCount;
             return Boolean::newBoolean(true);
         }
         CHECK_ARG_TYPE(args[0], ValueKind::kString);
@@ -70,18 +69,20 @@ Local<Value> CommandOutputClass::success(const Arguments& args) {
             std::vector<CommandOutputParameter> param{};
             auto                                paramArr = args[1].asArray();
             for (int i = 0; i < paramArr.size(); ++i) {
-                param.push_back(CommandOutputParameter(paramArr.get(i).asString().toString()));
+                param.push_back(CommandOutputParameter({paramArr.get(i).asString().toString()}));
             }
             get()->success(msg, param);
+            send();
             return Boolean::newBoolean(true);
         }
         get()->success(msg);
+        send();
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in success!");
+    CATCH_AND_THROW
 };
 
-Local<Value> CommandOutputClass::addMessage(const Arguments& args) {
+Local<Value> CommandOutputClass::addMessage(Arguments const& args) {
     try {
         CHECK_ARG_TYPE(args[0], ValueKind::kString);
         auto msg = args[0].asString().toString();
@@ -90,25 +91,26 @@ Local<Value> CommandOutputClass::addMessage(const Arguments& args) {
             std::vector<CommandOutputParameter> param{};
             auto                                paramArr = args[1].asArray();
             for (int i = 0; i < paramArr.size(); ++i) {
-                param.push_back(CommandOutputParameter(paramArr.get(i).asString().toString()));
+                param.push_back(CommandOutputParameter({paramArr.get(i).asString().toString()}));
             }
             if (args.size() >= 3) {
                 CHECK_ARG_TYPE(args[2], ValueKind::kNumber);
-                get()->addMessage(msg, param, (CommandOutputMessageType)args[2].asNumber().toInt32());
+                get()->addMessage(msg, param, static_cast<CommandOutputMessageType>(args[2].asNumber().toInt32()));
+                send();
                 return Boolean::newBoolean(true);
             }
-            get()->addMessage(msg, param, (CommandOutputMessageType)0);
+            get()->addMessage(msg, param, static_cast<CommandOutputMessageType>(0));
+            send();
             return Boolean::newBoolean(true);
         }
         get()->addMessage(msg, {}, CommandOutputMessageType::Success);
+        send();
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in addMessage!");
+    CATCH_AND_THROW
 };
 
-// MCAPI void error(std::string const&, std::vector<class
-// CommandOutputParameter> const&);
-Local<Value> CommandOutputClass::error(const Arguments& args) {
+Local<Value> CommandOutputClass::error(Arguments const& args) {
     CHECK_ARGS_COUNT(args, 1);
     CHECK_ARG_TYPE(args[0], ValueKind::kString);
     try {
@@ -118,20 +120,32 @@ Local<Value> CommandOutputClass::error(const Arguments& args) {
             std::vector<CommandOutputParameter> param{};
             auto                                paramArr = args[1].asArray();
             for (int i = 0; i < paramArr.size(); ++i) {
-                param.push_back(CommandOutputParameter(paramArr.get(i).asString().toString()));
+                param.push_back(CommandOutputParameter({paramArr.get(i).asString().toString()}));
             }
             get()->error(msg, param);
+            send();
             return Boolean::newBoolean(true);
         }
         get()->error(msg);
+        send();
         return Boolean::newBoolean(true);
     }
-    CATCH("Fail in error!");
+    CATCH_AND_THROW
 };
 
-Local<Value> CommandOutputClass::toString(const Arguments&) {
+void CommandOutputClass::send() const {
+    try {
+        if (!isAsync) return;
+        ll::service::getMinecraft()->mCommands->handleOutput(*origin, *output);
+        output->mSuccessCount = 0;
+        output->mMessages.clear();
+    }
+    CATCH_AND_THROW
+}
+
+Local<Value> CommandOutputClass::toString(Arguments const&) {
     try {
         return String::newString("<CommandOutput>");
     }
-    CATCH("Fail in toString!");
+    CATCH_AND_THROW
 };

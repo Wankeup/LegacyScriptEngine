@@ -1,40 +1,53 @@
 #pragma once
-
 #include "ll/api/i18n/I18n.h"
 #include "mc/deps/core/math/Vec3.h"
 #include "mc/world/level/BlockPos.h"
 
-#include <string>
-#include <vector>
+class FloatVec4;
 
 class IntVec4 {
 public:
-    int x, y, z;
-    int dim;
+    int x = 0, y = 0, z = 0;
+    int dim = 0;
 
-    inline BlockPos getBlockPos() { return {x, y, z}; }
+    [[nodiscard]] inline BlockPos getBlockPos() const { return {x, y, z}; }
 
-    inline int getDimensionId() { return dim; }
+    [[nodiscard]] inline int getDimensionId() const { return dim; }
+
+    inline IntVec4& operator=(FloatVec4 const&);
 };
 
 class FloatVec4 {
 public:
-    float x, y, z;
-    int   dim;
+    float x = 0, y = 0, z = 0;
+    int   dim = 0;
 
-    inline Vec3 getVec3() { return {x, y, z}; }
+    [[nodiscard]] inline Vec3 getVec3() const { return {x, y, z}; }
 
-    inline int getDimensionId() { return dim; }
+    [[nodiscard]] inline int getDimensionId() const { return dim; }
 
-    inline IntVec4 toIntVec4() {
-        auto px = (int)x;
-        auto py = (int)y;
-        auto pz = (int)z;
-        if (px < 0 && px != x) px = px - 1;
-        if (py < 0 && py != y) py = py - 1;
-        if (pz < 0 && pz != z) pz = pz - 1;
-        return {px, py, pz, dim};
+    [[nodiscard]] inline IntVec4 toIntVec4() const {
+        IntVec4 pos;
+        pos = *this;
+        return pos;
     }
+
+    inline FloatVec4& operator=(IntVec4 const&);
+};
+
+inline IntVec4& IntVec4::operator=(FloatVec4 const& rhs) {
+    x   = static_cast<int>(floor(rhs.x));
+    y   = static_cast<int>(floor(rhs.y));
+    z   = static_cast<int>(floor(rhs.z));
+    dim = rhs.dim;
+    return *this;
+};
+inline FloatVec4& FloatVec4::operator=(IntVec4 const& rhs) {
+    x   = static_cast<float>(rhs.x);
+    y   = static_cast<float>(rhs.y);
+    z   = static_cast<float>(rhs.z);
+    dim = rhs.dim;
+    return *this;
 };
 
 using namespace ll::i18n_literals;
@@ -58,39 +71,35 @@ inline std::string DimId2Name(int dimid) {
     return name;
 }
 
-// 全局变量
-extern bool isCmdRegisterEnabled;
-
-#if defined(LEGACY_SCRIPT_ENGINE_BACKEND_QUICKJS)
+#if defined(LSE_BACKEND_QUICKJS)
 // QuickJs
-constexpr std::string LLSE_BACKEND_TYPE = "Js";
+inline constexpr std::string LLSE_BACKEND_TYPE = "Js";
 
-#elif defined(LEGACY_SCRIPT_ENGINE_BACKEND_LUA)
+#elif defined(LSE_BACKEND_LUA)
 // Lua
-constexpr std::string LLSE_BACKEND_TYPE = "Lua";
+inline constexpr std::string LLSE_BACKEND_TYPE = "Lua";
 
-#elif defined(LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS)
+#elif defined(LSE_BACKEND_NODEJS)
 // NodeJs
-const std::string LLSE_BACKEND_TYPE = "NodeJs";
+inline constexpr std::string LLSE_BACKEND_TYPE = "NodeJs";
 
-#elif defined(LEGACY_SCRIPT_ENGINE_BACKEND_PYTHON)
+#elif defined(LSE_BACKEND_PYTHON)
 // Python
-const std::string LLSE_BACKEND_TYPE = "Python";
+inline constexpr std::string LLSE_BACKEND_TYPE = "Python";
 #endif
 
 // Debug engine information
-#if defined(LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS)
-constexpr std::string LLSE_DEBUG_CMD = "nodejsdebug";
-#elif defined(LEGACY_SCRIPT_ENGINE_BACKEND_QUICKJS)
-constexpr std::string LLSE_DEBUG_CMD = "jsdebug";
-#elif defined(LEGACY_SCRIPT_ENGINE_BACKEND_LUA)
-constexpr std::string LLSE_DEBUG_CMD = "luadebug";
-#elif defined(LEGACY_SCRIPT_ENGINE_BACKEND_PYTHON)
-constexpr std::string LLSE_DEBUG_CMD = "pydebug";
+#if defined(LSE_BACKEND_NODEJS)
+inline constexpr std::string LLSE_DEBUG_CMD = "nodejsdebug";
+#elif defined(LSE_BACKEND_QUICKJS)
+inline constexpr std::string LLSE_DEBUG_CMD = "jsdebug";
+#elif defined(LSE_BACKEND_LUA)
+inline constexpr std::string LLSE_DEBUG_CMD = "luadebug";
+#elif defined(LSE_BACKEND_PYTHON)
+inline constexpr std::string LLSE_DEBUG_CMD = "pydebug";
 #endif
 
-constexpr wchar_t       LLSE_GLOBAL_DATA_NAME[]                 = L"LLSE_GLOBAL_DATA_SECTION";
-constexpr unsigned long LLSE_MESSAGE_SYSTEM_WAIT_CHECK_INTERVAL = 5;
-constexpr size_t        LLSE_POOL_THREAD_COUNT                  = 4;
-constexpr int           LLSE_VALID_BACKENDS_COUNT               = 4;
-constexpr auto          LLSE_NPM_EXECUTE_PATH                   = "plugins/legacy-script-engine-nodejs";
+inline constexpr wchar_t       LLSE_GLOBAL_DATA_NAME[]                 = L"LLSE_GLOBAL_DATA_SECTION";
+inline constexpr unsigned long LLSE_MESSAGE_SYSTEM_WAIT_CHECK_INTERVAL = 5;
+inline constexpr size_t        LLSE_POOL_THREAD_COUNT                  = 4;
+inline constexpr int           LLSE_VALID_BACKENDS_COUNT               = 4;

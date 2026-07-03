@@ -54,5 +54,12 @@
   "Could not find {} in registered commands": {
     "": "Could not find {} in registered commands."
   },
-  "Event {} not found!": "Event {} not found!"
+  "Event {} not found!": "Event {} not found!",
+  "Failed to enable plugin {0}: {1}\\n{2}": "Failed to enable plugin {0}: {1}\\n{2}",
+  "Failed to enable plugin {0}: {1}": "Failed to enable plugin {0}: {1}",
+  "Failed to disable plugin {0}: {1}": "Failed to disable plugin {0}: {1}",
+  "You don't have permission to use this command": {
+    "": "You don't have permission to use this command."
+  },
+  "Failed to register legacy command: {}": "Failed to register legacy command: {}"
 }

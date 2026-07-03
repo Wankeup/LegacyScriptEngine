@@ -133,7 +133,7 @@ Reminder: This event does not fire when the player returns to the Overworld from
 #### `"onAttackEntity"` - Player Attack Other Event
 
 - Listener function prototype 
-  `function(player,entity,damage)`
+  `function(player,entity)`
 - Parameters: 
   - player : `Player` 
     The player that attacked an entity.
@@ -449,9 +449,7 @@ The **container** here is a broad concept of container, including boxes, buckets
     The player that closes the container.
   - block : `Block`  
     The container that was closed.
-- Intercept events: function returns `false`
-
-Due to the limitation of the monitoring function, the containers that currently support monitoring and closing are: chests (`minecraft:chest`), and wooden barrels (`minecraft:barrel`).
+- Intercept event: cannot be intercepted.
 
 
 

@@ -1,36 +1,37 @@
-#include "api/APIHelp.h"
-#include "api/BaseAPI.h"
-#include "api/BlockAPI.h"
-#include "api/BlockEntityAPI.h"
-#include "api/CommandAPI.h"
-#include "api/CommandOriginAPI.h"
-#include "api/CommandOutputAPI.h"
-#include "api/ContainerAPI.h"
-#include "api/DataAPI.h"
-#include "api/DatabaseAPI.h"
-#include "api/DeviceAPI.h"
-#include "api/EntityAPI.h"
-#include "api/FileSystemAPI.h"
-#include "api/GameUtilsAPI.h"
-#include "api/GuiAPI.h"
-#include "api/ItemAPI.h"
-#include "api/LlAPI.h"
-#include "api/LoggerAPI.h"
-#include "api/McAPI.h"
-#include "api/NbtAPI.h"
-#include "api/NetworkAPI.h"
-#include "api/PacketAPI.h"
-#include "api/PlayerAPI.h"
-#include "api/ScoreboardAPI.h"
-#include "api/ScriptAPI.h"
-#include "api/ServerAPI.h"
-#include "api/SystemAPI.h"
+#include "legacy/main/BindAPIs.h"
 
-// #include "api/PermissionAPI.h"
-#include "api/InternationalAPI.h"
-#include "api/ParticleAPI.h"
+#include "legacy/api/APIHelp.h"
+#include "legacy/api/BaseAPI.h"
+#include "legacy/api/BlockAPI.h"
+#include "legacy/api/BlockEntityAPI.h"
+#include "legacy/api/CommandAPI.h"
+#include "legacy/api/CommandOriginAPI.h"
+#include "legacy/api/CommandOutputAPI.h"
+#include "legacy/api/ContainerAPI.h"
+#include "legacy/api/DataAPI.h"
+#include "legacy/api/DatabaseAPI.h"
+#include "legacy/api/DeviceAPI.h"
+#include "legacy/api/EntityAPI.h"
+#include "legacy/api/FileSystemAPI.h"
+#include "legacy/api/GameUtilsAPI.h"
+#include "legacy/api/GuiAPI.h"
+#include "legacy/api/ItemAPI.h"
+#include "legacy/api/LlAPI.h"
+#include "legacy/api/LoggerAPI.h"
+#include "legacy/api/McAPI.h"
+#include "legacy/api/NbtAPI.h"
+#include "legacy/api/NetworkAPI.h"
+#include "legacy/api/PacketAPI.h"
+#include "legacy/api/PlayerAPI.h"
+#include "legacy/api/ScoreboardAPI.h"
+#include "legacy/api/ScriptAPI.h"
+#include "legacy/api/SystemAPI.h"
 
-void BindAPIs(ScriptEngine* engine) {
+// #include "legacy/api/PermissionAPI.h"
+#include "legacy/api/InternationalAPI.h"
+#include "legacy/api/ParticleAPI.h"
+
+void BindAPIs(std::shared_ptr<ScriptEngine> const& engine) {
 
     //////////////// 全局函数 ////////////////
 
@@ -38,7 +39,7 @@ void BindAPIs(ScriptEngine* engine) {
     engine->set("colorLog", Function::newFunction(ColorLog));
     engine->set("fastLog", Function::newFunction(FastLog));
 
-#ifndef LEGACY_SCRIPT_ENGINE_BACKEND_NODEJS // NodeJs has its own functions below
+#ifndef LSE_BACKEND_NODEJS // NodeJs has its own functions below
     engine->set("setTimeout", Function::newFunction(SetTimeout));
     engine->set("setInterval", Function::newFunction(SetInterval));
     engine->set("clearInterval", Function::newFunction(ClearInterval));
@@ -57,6 +58,7 @@ void BindAPIs(ScriptEngine* engine) {
     engine->registerNativeClass(NbtStaticBuilder);
     engine->registerNativeClass(TextClassBuilder);
     engine->registerNativeClass(ParticleColorBuilder);
+    engine->registerNativeClass(DirectionBuilder);
 
     engine->registerNativeClass(PermissionStaticBuilder);
     engine->registerNativeClass(ParamTypeStaticBuilder);
